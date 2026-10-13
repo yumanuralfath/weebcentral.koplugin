@@ -6,6 +6,7 @@ pub struct SearchResult {
     pub title: String,
     pub url: String,
     pub cover_url: String,
+    pub cover_path: String,
 }
 
 #[derive(Serialize)]
@@ -18,12 +19,20 @@ pub struct Chapter {
 
 #[derive(Serialize)]
 pub struct SeriesChapters {
+    pub id: String,
     pub title: String,
+    pub url: String,
+    pub cover_url: String,
+    pub authors: String,
+    pub tags: String,
+    pub manga_type: String,
+    pub status: String,
+    pub description: String,
     pub chapters: Vec<Chapter>,
 }
 
 #[derive(Serialize)]
 pub struct DownloadResult {
-    pub path: String,
-    pub already_exists: bool,
+    pub paths: Vec<String>,
+    pub skipped: usize,
 }

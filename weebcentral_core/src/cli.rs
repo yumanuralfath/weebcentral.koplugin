@@ -10,7 +10,8 @@ pub fn run() -> ExitCode {
     match arguments.next().as_deref() {
         Some("search") => match arguments.next() {
             Some(keyword) if !keyword.trim().is_empty() => {
-                emit_result(weebcentral::search(&keyword))
+                let cover_cache_dir = arguments.next().unwrap_or_default();
+                emit_result(weebcentral::search(&keyword, &cover_cache_dir))
             }
             _ => emit_error("Search keyword is required"),
         },
@@ -18,13 +19,29 @@ pub fn run() -> ExitCode {
             Some(series_id) => emit_result(weebcentral::load_chapters(&series_id)),
             None => emit_error("Series ID is required"),
         },
-        Some("download") => match (arguments.next(), arguments.next(), arguments.next()) {
-            (Some(chapter_id), Some(title), Some(output_dir)) => {
-                emit_result(download::download_chapter(&chapter_id, &title, &output_dir))
-            }
-            _ => {
-                emit_error("Usage: weebcentral_core_dev download <chapter-id> <title> <output-dir>")
-            }
+        Some("download") => match (
+            arguments.next(),
+            arguments.next(),
+            arguments.next(),
+            arguments.next(),
+            arguments.next(),
+        ) {
+            (
+                Some(series_id),
+                Some(selection),
+                Some(volume_name),
+                Some(output_dir),
+                Some(progress_path),
+            ) => emit_result(download::download_selection(
+                &series_id,
+                &selection,
+                &volume_name,
+                &output_dir,
+                &progress_path,
+            )),
+            _ => emit_error(
+                "Usage: weebcentral_core_dev download <series-id> <selection> <volume-name> <output-dir> <progress-file>",
+            ),
         },
         _ => emit_error("Usage: weebcentral_core_dev search <keyword>"),
     }

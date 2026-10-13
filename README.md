@@ -38,7 +38,7 @@ The toolchain name follows the device's KOReader ABI, not just the model name. P
 | `kindlepw2`          | Kindle Paperwhite 2 and everything since | `armv7-unknown-linux-gnueabi`   | Experimental |
 | `kindle5`            | Kindle 4, Touch, Paperwhite 1            | `armv7-unknown-linux-gnueabi`   | Experimental |
 | `kindle`             | Kindle 2, DX, DXg, 3                     | `arm-unknown-linux-gnueabi`     | Experimental |
-| `kobo`               | Kobo (generic)                           | `armv7-unknown-linux-gnueabihf` | Stable       |
+| `kobo`               | Kobo (generic, older devices)            | `armv7-unknown-linux-gnueabihf` | Experimental |
 | `kobov4`             | Kobo Mark 7 class devices                | `armv7-unknown-linux-gnueabihf` | Stable       |
 | `kobov5`             | Kobo and Tolino devices on firmware 5.x  | `armv7-unknown-linux-gnueabihf` | Stable       |
 | `nickel`             | Kobo variant mimicking Kobo's own TC     | `armv7-unknown-linux-gnueabihf` | Stable       |
@@ -51,8 +51,12 @@ The toolchain name follows the device's KOReader ABI, not just the model name. P
 
 **Status meaning**
 
-- **Stable**: the release fails if this build fails.
-- **Experimental**: soft-float or legacy-glibc targets. Rust's standard library expects a reasonably recent glibc, so these builds may fail or may not run on very old firmware. If one fails, the release still publishes without that ZIP. Rust's soft-float ARM targets also do not use the hardware FPU, which is fine for this plugin.
+- **Stable**: dynamically linked against the toolchain's glibc. The sysroot is glibc 2.17 or newer, which Rust's standard library and the `ring` TLS dependency require. The release fails if one of these builds fails.
+- **Experimental**: the toolchain's sysroot is older than glibc 2.16 (`kindle` and `pocketbook` 2.9, `bookeen` 2.11, `kindle5`, `kindlepw2` and `cervantes` 2.12, `kobo` 2.15). Rust's standard library and the `ring` TLS dependency call `getauxval()`, which these sysroots do not have, so a plain build fails at link time with `undefined reference to 'getauxval'`. The workflow handles this in two steps:
+  1. Build the normal dynamic glibc binary and link in a tiny `getauxval` shim that reads `/proc/self/auxv`.
+  2. If that still fails (for example because another symbol is missing), fall back to a **statically linked musl** binary, using the koxtoolchain GCC only as C compiler and linker driver.
+
+  The release notes list which variant each experimental ZIP ended up using. None of the experimental builds have been tested on real devices. If both attempts fail, the release still publishes without that ZIP.
 
 A mismatched ABI can produce a binary that builds fine but does not run on the device. If you are unsure, start with the toolchain KOReader itself uses for your device.
 
@@ -69,7 +73,7 @@ What the workflow does ([`.github/workflows/release-all.yml`](.github/workflows/
 
 1. Validates the tag and checks that the release does not already exist.
 2. Runs the Rust tests once.
-3. Builds the core in parallel for all 14 toolchains. For each one it downloads `<toolchain>.tar.zst` from [koxtoolchain 2026.08](https://github.com/koreader/koxtoolchain/releases/tag/2026.08), verifies its published SHA-256 before extraction, selects the matching Rust target, and cross-compiles.
+3. Builds the core in parallel for all 14 toolchains. For each one it downloads `<toolchain>.tar.zst` from [koxtoolchain 2026.08](https://github.com/koreader/koxtoolchain/releases/tag/2026.08), verifies its published SHA-256 before extraction, selects the matching Rust target, and cross-compiles (with the `getauxval` shim and musl fallback for old sysroots, see above).
 4. Packages one `WeebCentralDownloader-<version>-<toolchain>.zip` per toolchain, each with a `.sha256` file.
 5. Creates a single GitHub Release with every ZIP plus a combined `SHA256SUMS`.
 

@@ -61,16 +61,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # --- Stable: hard-float ARMv7 (gnueabihf) ---
+          # --- Stable: sysroot glibc >= 2.17 (Rust std + ring need getauxval), dynamic glibc build ---
           - toolchain: kindlehf
             cross_prefix: arm-kindlehf-linux-gnueabihf
             rust_target: armv7-unknown-linux-gnueabihf
             sha256: 8cc7dfbd71abd78f9e947d6b2e20670288a4402edc7b07176bca791f7eaf87d0
-            experimental: false
-          - toolchain: kobo
-            cross_prefix: arm-kobo-linux-gnueabihf
-            rust_target: armv7-unknown-linux-gnueabihf
-            sha256: 326dd2a2a5ca371073c4ebc783d578f93f4122d83c46b84ec85b9e3ed5ff2305
             experimental: false
           - toolchain: kobov4
             cross_prefix: arm-kobov4-linux-gnueabihf
@@ -103,41 +98,65 @@ jobs:
             rust_target: aarch64-unknown-linux-gnu
             sha256: 4b00e0351a702d37be5ae660d9077d9ae3da22e5145e28d8089f193f325f446a
             experimental: false
-          # --- Experimental: soft-float / legacy glibc ---
+          # --- Experimental: sysroot glibc < 2.16 (no getauxval) ---
+          # Rust std and ring call getauxval(), which these sysroots lack. First try a normal
+          # dynamic glibc build with a tiny getauxval shim linked in (reads /proc/self/auxv).
+          # If that fails, fall back to a static musl build using the same GCC as linker.
+          - toolchain: kobo
+            cross_prefix: arm-kobo-linux-gnueabihf
+            rust_target: armv7-unknown-linux-gnueabihf
+            sha256: 326dd2a2a5ca371073c4ebc783d578f93f4122d83c46b84ec85b9e3ed5ff2305
+            shim: true
+            fallback_target: armv7-unknown-linux-musleabihf
+            experimental: true
           - toolchain: kindlepw2
             cross_prefix: arm-kindlepw2-linux-gnueabi
             rust_target: armv7-unknown-linux-gnueabi
             sha256: 84bc8b4143796ba0c9e6306aefc596ca2e2685cf9174a285bb14f36425de8104
+            shim: true
+            fallback_target: armv7-unknown-linux-musleabi
             experimental: true
           - toolchain: kindle5
             cross_prefix: arm-kindle5-linux-gnueabi
             rust_target: armv7-unknown-linux-gnueabi
             sha256: 4f519d30c6b041ba3e8a34f2b62437232b8b27e672c1b892c8d350c0f7706c98
+            shim: true
+            fallback_target: armv7-unknown-linux-musleabi
             experimental: true
           - toolchain: kindle
             cross_prefix: arm-kindle-linux-gnueabi
             rust_target: arm-unknown-linux-gnueabi
             sha256: 4aa5751f5e29268d91999d4754d14ce0d6db5510e46b26bd7b2a8ce25fe09ad8
+            shim: true
+            fallback_target: arm-unknown-linux-musleabi
             experimental: true
           - toolchain: cervantes
             cross_prefix: arm-cervantes-linux-gnueabi
             rust_target: armv7-unknown-linux-gnueabi
             sha256: 2f78a14dd36f7e915634ff8ac6e29f1e7d2db5b59da292b3401c2a1165c8b700
+            shim: true
+            fallback_target: armv7-unknown-linux-musleabi
             experimental: true
           - toolchain: pocketbook
             cross_prefix: arm-pocketbook-linux-gnueabi
             rust_target: armv7-unknown-linux-gnueabi
             sha256: 3dbd22d7f3f485681ca9e4baef7ed463f540ffeca88fa38ffc51b6d336ec2112
+            shim: true
+            fallback_target: armv7-unknown-linux-musleabi
             experimental: true
           - toolchain: bookeen
             cross_prefix: arm-bookeen-linux-gnueabi
             rust_target: armv7-unknown-linux-gnueabi
             sha256: b087934eb1fc4e13d988bc7571755a08a227b67579e110416ba7931caad2cf36
+            shim: true
+            fallback_target: armv7-unknown-linux-musleabi
             experimental: true
     env:
       TOOLCHAIN: ${{ matrix.toolchain }}
       CROSS_PREFIX: ${{ matrix.cross_prefix }}
       RUST_TARGET: ${{ matrix.rust_target }}
+      FALLBACK_TARGET: ${{ matrix.fallback_target }}
+      USE_SHIM: ${{ matrix.shim }}
       TOOLCHAIN_SHA256: ${{ matrix.sha256 }}
       RELEASE_TAG: ${{ inputs.version }}
     steps:
@@ -163,25 +182,95 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.rust_target }}
+          targets: ${{ matrix.rust_target }}${{ matrix.fallback_target && format(',{0}', matrix.fallback_target) || '' }}
 
       - name: Configure cross-compilation environment
         run: |
-          lower="${RUST_TARGET//-/_}"
-          upper="$(echo "$lower" | tr '[:lower:]' '[:upper:]')"
-          {
-            echo "CARGO_TARGET_${upper}_LINKER=${CROSS_PREFIX}-gcc"
-            echo "CC_${lower}=${CROSS_PREFIX}-gcc"
-            echo "AR_${lower}=${CROSS_PREFIX}-ar"
-          } >> "$GITHUB_ENV"
+          for target in "$RUST_TARGET" "$FALLBACK_TARGET"; do
+            [[ -n "$target" ]] || continue
+            lower="${target//-/_}"
+            upper="$(echo "$lower" | tr '[:lower:]' '[:upper:]')"
+            {
+              echo "CARGO_TARGET_${upper}_LINKER=${CROSS_PREFIX}-gcc"
+              echo "CC_${lower}=${CROSS_PREFIX}-gcc"
+              echo "AR_${lower}=${CROSS_PREFIX}-ar"
+            } >> "$GITHUB_ENV"
+          done
 
-      - name: Cross-compile core for ${{ matrix.toolchain }}
+      - name: Build getauxval shim (sysroot glibc < 2.16)
+        if: matrix.shim
+        run: |
+          cat > "$RUNNER_TEMP/getauxval_shim.c" <<'SHIM_EOF'
+          /* getauxval() for glibc < 2.16. Reads /proc/self/auxv and follows glibc's
+             contract: returns 0 and sets errno=ENOENT when the entry is missing. */
+          #define _GNU_SOURCE
+          #include <errno.h>
+          #include <fcntl.h>
+          #include <unistd.h>
+
+          unsigned long getauxval(unsigned long type)
+          {
+              unsigned long entry[2];
+              unsigned long value = 0;
+              int saved_errno = errno;
+              int found = 0;
+              int fd = open("/proc/self/auxv", O_RDONLY | O_CLOEXEC);
+
+              if (fd < 0) {
+                  errno = ENOENT;
+                  return 0;
+              }
+              while (read(fd, entry, sizeof entry) == (ssize_t)sizeof entry) {
+                  if (entry[0] == 0) /* AT_NULL */
+                      break;
+                  if (entry[0] == type) {
+                      value = entry[1];
+                      found = 1;
+                      break;
+                  }
+              }
+              close(fd);
+              errno = found ? saved_errno : ENOENT;
+              return value;
+          }
+          SHIM_EOF
+          "${CROSS_PREFIX}-gcc" -O2 -fPIC -Wall -Wextra \
+            -c "$RUNNER_TEMP/getauxval_shim.c" -o "$RUNNER_TEMP/getauxval_shim.o"
+
+      - name: Cross-compile core (${{ matrix.rust_target }})
+        id: build_primary
         working-directory: weebcentral_core
-        run: cargo build --locked --release --target "$RUST_TARGET"
+        # With a fallback target, a failure here is not fatal; the next step handles it.
+        continue-on-error: ${{ matrix.fallback_target != '' }}
+        run: |
+          if [[ "$USE_SHIM" == "true" ]]; then
+            export RUSTFLAGS="-C link-arg=${RUNNER_TEMP}/getauxval_shim.o"
+          fi
+          cargo build --locked --release --target "$RUST_TARGET"
+
+      - name: Fallback - static musl build (${{ matrix.fallback_target }})
+        id: build_fallback
+        if: steps.build_primary.outcome == 'failure'
+        working-directory: weebcentral_core
+        run: cargo build --locked --release --target "$FALLBACK_TARGET"
 
       - name: Package plugin ZIP
+        env:
+          PRIMARY_OUTCOME: ${{ steps.build_primary.outcome }}
         run: |
-          binary="weebcentral_core/target/${RUST_TARGET}/release/weebcentral_core"
+          if [[ "$PRIMARY_OUTCOME" == "success" ]]; then
+            target="$RUST_TARGET"
+            if [[ "$USE_SHIM" == "true" ]]; then
+              variant="dynamic glibc build with getauxval shim"
+            else
+              variant="dynamic glibc build"
+            fi
+          else
+            target="$FALLBACK_TARGET"
+            variant="static musl build"
+          fi
+
+          binary="weebcentral_core/target/${target}/release/weebcentral_core"
           test -x "$binary"
           file "$binary" | tee "$RUNNER_TEMP/binary-info.txt"
           grep -Eiq 'ARM|aarch64' "$RUNNER_TEMP/binary-info.txt"
@@ -195,6 +284,7 @@ jobs:
           archive="WeebCentralDownloader-${RELEASE_TAG}-${TOOLCHAIN}.zip"
           (cd "$RUNNER_TEMP/package" && zip -qr "$GITHUB_WORKSPACE/dist/$archive" WeebCentral.koplugin)
           (cd dist && sha256sum "$archive" > "$archive.sha256")
+          echo "${TOOLCHAIN}: ${variant} (${target})" > "dist/${archive}.info"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -229,9 +319,8 @@ jobs:
             echo "Install the ZIP that matches your device's KOReader toolchain, then copy the \`WeebCentral.koplugin\` folder into KOReader's \`plugins\` directory. See the README for the device-to-toolchain table."
             echo
             echo "Toolchains in this release:"
-            for f in WeebCentralDownloader-*.zip; do
-              name="${f#WeebCentralDownloader-${RELEASE_TAG}-}"
-              echo "- \`${name%.zip}\`"
+            for f in WeebCentralDownloader-*.zip.info; do
+              echo "- $(cat "$f")"
             done
           } > ../release-notes.md
           ls -l

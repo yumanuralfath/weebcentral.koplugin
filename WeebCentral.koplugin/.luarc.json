@@ -1,0 +1,19 @@
+{
+  "runtime.version": "LuaJIT",
+  "runtime.path": [
+    "?.lua",
+    "?/init.lua",
+    "koreader/?.lua",
+    "koreader/?/init.lua",
+    "koreader/frontend/?.lua",
+    "koreader/frontend/?/init.lua"
+  ],
+  "workspace.library": [
+    "./koreader"
+  ],
+  "workspace.ignoreDir": [
+    ".vscode",
+    ".git",
+    "target"
+  ]
+}

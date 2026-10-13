@@ -46,34 +46,16 @@ fn main() -> ExitCode {
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
         Some("search") => match args.next() {
-            Some(keyword) if !keyword.trim().is_empty() => match search(&keyword) {
-                Ok(results) => {
-                    println!("{}", json!({ "ok": true, "data": results }));
-                    ExitCode::SUCCESS
-                }
-                Err(error) => emit_error(error),
-            },
+            Some(keyword) if !keyword.trim().is_empty() => emit_result(search(&keyword)),
             _ => emit_error("Search keyword is required"),
         },
         Some("chapters") => match args.next() {
-            Some(series_id) => match load_chapters(&series_id) {
-                Ok(chapters) => {
-                    println!("{}", json!({ "ok": true, "data": chapters }));
-                    ExitCode::SUCCESS
-                }
-                Err(error) => emit_error(error),
-            },
+            Some(series_id) => emit_result(load_chapters(&series_id)),
             None => emit_error("Series ID is required"),
         },
         Some("download") => match (args.next(), args.next(), args.next()) {
             (Some(chapter_id), Some(title), Some(output_dir)) => {
-                match download_chapter(&chapter_id, &title, &output_dir) {
-                    Ok(result) => {
-                        println!("{}", json!({ "ok": true, "data": result }));
-                        ExitCode::SUCCESS
-                    }
-                    Err(error) => emit_error(error),
-                }
+                emit_result(download_chapter(&chapter_id, &title, &output_dir))
             }
             _ => {
                 emit_error("Usage: weebcentral_core_dev download <chapter-id> <title> <output-dir>")
@@ -86,6 +68,16 @@ fn main() -> ExitCode {
 fn emit_error(error: impl std::fmt::Display) -> ExitCode {
     println!("{}", json!({ "ok": false, "error": error.to_string() }));
     ExitCode::FAILURE
+}
+
+fn emit_result<T: Serialize>(result: Result<T, String>) -> ExitCode {
+    match result {
+        Ok(data) => {
+            println!("{}", json!({ "ok": true, "data": data }));
+            ExitCode::SUCCESS
+        }
+        Err(error) => emit_error(error),
+    }
 }
 
 fn search(keyword: &str) -> Result<Vec<SearchResult>, String> {
@@ -110,22 +102,13 @@ fn search(keyword: &str) -> Result<Vec<SearchResult>, String> {
     let mut results = Vec::new();
     for item in document.select(&result_selector) {
         let href = item.value().attr("href").unwrap_or_default();
-        let id = href
-            .split("/series/")
-            .nth(1)
-            .and_then(|rest| rest.split('/').next())
-            .unwrap_or_default()
-            .split('?')
-            .next()
-            .unwrap_or_default();
+        let id = id_from_href(href, "/series/");
         let title = item
             .select(&title_selector)
             .next()
-            .map(|element| element.text().collect::<Vec<_>>().join(" "))
+            .map(|element| normalize_whitespace(element.text().collect::<Vec<_>>().join(" ")))
             .unwrap_or_default()
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
+            .to_string();
 
         if id.is_empty() || title.is_empty() {
             continue;
@@ -168,11 +151,9 @@ fn load_chapters(series_id: &str) -> Result<SeriesChapters, String> {
     let title = series_document
         .select(&title_selector)
         .next()
-        .map(|element| element.text().collect::<Vec<_>>().join(" "))
+        .map(|element| normalize_whitespace(element.text().collect::<Vec<_>>().join(" ")))
         .unwrap_or_default()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+        .to_string();
 
     let chapters_url = format!("{series_url}/full-chapter-list");
     let response = ureq::get(&chapters_url)
@@ -191,25 +172,16 @@ fn load_chapters(series_id: &str) -> Result<SeriesChapters, String> {
     let mut chapters = Vec::new();
     for item in chapters_document.select(&chapter_selector) {
         let href = item.value().attr("href").unwrap_or_default();
-        let id = href
-            .split("/chapters/")
-            .nth(1)
-            .and_then(|rest| rest.split('/').next())
-            .unwrap_or_default()
-            .split('?')
-            .next()
-            .unwrap_or_default();
+        let id = id_from_href(href, "/chapters/");
         if id.is_empty() {
             continue;
         }
         let chapter_title = item
             .select(&chapter_title_selector)
             .next()
-            .map(|element| element.text().collect::<Vec<_>>().join(" "))
+            .map(|element| normalize_whitespace(element.text().collect::<Vec<_>>().join(" ")))
             .unwrap_or_else(|| "Unknown chapter".to_string())
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
+            .to_string();
         let published_at = item
             .select(&time_selector)
             .next()
@@ -346,6 +318,19 @@ fn read_text(response: ureq::Response) -> Result<String, String> {
         .read_to_string(&mut text)
         .map_err(|error| error.to_string())?;
     Ok(text)
+}
+
+fn id_from_href<'a>(href: &'a str, route: &str) -> &'a str {
+    href.split_once(route)
+        .map(|(_, remainder)| remainder)
+        .unwrap_or_default()
+        .split(|character| character == '/' || character == '?')
+        .next()
+        .unwrap_or_default()
+}
+
+fn normalize_whitespace(value: String) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn validate_id(value: &str) -> Result<(), String> {

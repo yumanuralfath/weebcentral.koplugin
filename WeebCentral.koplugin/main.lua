@@ -2,6 +2,7 @@ local InfoMessage = require("ui/widget/infomessage")
 local ConfirmBox = require("ui/widget/confirmbox")
 local InputDialog = require("ui/widget/inputdialog")
 local Menu = require("ui/widget/menu")
+local DownloadMgr = require("ui/downloadmgr")
 local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
 local DataStorage = require("datastorage")
@@ -31,15 +32,15 @@ function Weeb:addToMainMenu(menu_items)
 		sorting_hint = "tools",
 		sub_item_table = {
 			{
-				text = _("Cari manga"),
+				text = _("Search manga"),
 				callback = function()
 					self:openSearchDialog()
 				end,
 			},
 			{
-				text = _("Folder download"),
+				text = _("Choose download folder"),
 				callback = function()
-					self:openOutputDirectoryDialog()
+					self:chooseOutputDirectory()
 				end,
 			},
 		},
@@ -76,7 +77,7 @@ end
 
 function Weeb:runWithProgress(message, callback)
 	local progress = InfoMessage:new({
-		text = message .. " (ketuk untuk membatalkan)",
+		text = message .. " (tap to cancel)",
 	})
 	UIManager:show(progress)
 	UIManager:forceRePaint()
@@ -94,20 +95,20 @@ end
 function Weeb:openSearchDialog()
 	local dialog
 	dialog = InputDialog:new({
-		title = _("Cari manga di WeebCentral"),
+		title = _("Search WeebCentral"),
 		input = self.search_keyword,
-		input_hint = _("Judul manga"),
+		input_hint = _("Manga title"),
 		buttons = {
 			{
 				{
-					text = _("Batal"),
+					text = _("Cancel"),
 					id = "close",
 					callback = function()
 						UIManager:close(dialog)
 					end,
 				},
 				{
-					text = _("Cari"),
+					text = _("Search"),
 					is_enter_default = true,
 					callback = function()
 						self.search_keyword = dialog:getInputText():match("^%s*(.-)%s*$")
@@ -127,7 +128,7 @@ function Weeb:openSearchDialog()
 end
 
 function Weeb:search(keyword)
-	local output, succeeded = self:runWithProgress(_("Sedang mencari..."), function()
+	local output, succeeded = self:runWithProgress(_("Searching..."), function()
 		return self:runBinary("search", keyword)
 	end)
 	local results, err = self:decodeCoreResponse(output, succeeded)
@@ -139,7 +140,7 @@ function Weeb:search(keyword)
 end
 
 function Weeb:loadChapters(series)
-	local output, succeeded = self:runWithProgress(_("Memuat daftar chapter..."), function()
+	local output, succeeded = self:runWithProgress(_("Loading chapters..."), function()
 		return self:runBinary("chapters", series.id)
 	end)
 	local data, err = self:decodeCoreResponse(output, succeeded)
@@ -152,21 +153,21 @@ end
 
 function Weeb:decodeCoreResponse(output, succeeded)
 	if not output then
-		return nil, _("Tidak dapat menjalankan binary WeebCentral.")
+		return nil, _("Could not run the WeebCentral core executable.")
 	end
 	local response, decode_error = rapidjson.decode(output)
 	if not response then
-		return nil, _("Respons core tidak valid: ") .. tostring(decode_error) .. "\n\n" .. output
+		return nil, _("Invalid response from the core: ") .. tostring(decode_error) .. "\n\n" .. output
 	end
 	if not succeeded or response.ok ~= true then
-		return nil, response.error or _("Operasi WeebCentral gagal.")
+		return nil, response.error or _("The WeebCentral operation failed.")
 	end
 	return response.data
 end
 
 function Weeb:showSearchResults(results)
 	if #results == 0 then
-		self:showMessage(_("Tidak ada hasil ditemukan."))
+		self:showMessage(_("No manga found."))
 		return
 	end
 
@@ -181,7 +182,7 @@ function Weeb:showSearchResults(results)
 
 	local menu
 	menu = Menu:new({
-		title = _("Hasil pencarian"),
+		title = _("Search results"),
 		item_table = items,
 		covers_fullscreen = true,
 		onMenuSelect = function(menu_self, item)
@@ -197,7 +198,7 @@ end
 function Weeb:showChapters(series)
 	local chapters = series.chapters or {}
 	if #chapters == 0 then
-		self:showMessage(_("Tidak ada chapter ditemukan untuk ") .. series.title)
+		self:showMessage(_("No chapters found for ") .. series.title)
 		return
 	end
 
@@ -225,7 +226,7 @@ end
 
 function Weeb:confirmDownload(chapter)
 	UIManager:show(ConfirmBox:new({
-		text = _("Download sebagai CBZ?") .. "\n\n" .. chapter.title .. "\n" .. self.output_directory,
+		text = _("Download as CBZ?") .. "\n\n" .. chapter.title .. "\n" .. self.output_directory,
 		ok_text = _("Download"),
 		ok_callback = function()
 			Trapper:wrap(function()
@@ -236,7 +237,7 @@ function Weeb:confirmDownload(chapter)
 end
 
 function Weeb:downloadChapter(chapter)
-	local output, succeeded = self:runWithProgress(_("Mengunduh chapter..."), function()
+	local output, succeeded = self:runWithProgress(_("Downloading chapter..."), function()
 		return self:runBinary("download", chapter.id, chapter.title, self.output_directory)
 	end)
 	local result, err = self:decodeCoreResponse(output, succeeded)
@@ -244,41 +245,18 @@ function Weeb:downloadChapter(chapter)
 		if err then self:showMessage(err) end
 		return
 	end
-	self:showMessage(_("CBZ tersimpan di:") .. "\n" .. result.path)
+	local message = result.already_exists and _("CBZ already exists:") or _("CBZ saved to:")
+	self:showMessage(message .. "\n" .. result.path)
 end
 
-function Weeb:openOutputDirectoryDialog()
-	local dialog
-	dialog = InputDialog:new({
-		title = _("Folder download CBZ"),
-		input = self.output_directory,
-		input_hint = _("Path folder di perangkat"),
-		buttons = {
-			{
-				{
-					text = _("Batal"),
-					id = "close",
-					callback = function()
-						UIManager:close(dialog)
-					end,
-				},
-				{
-					text = _("Simpan"),
-					is_enter_default = true,
-					callback = function()
-						local path = dialog:getInputText():match("^%s*(.-)%s*$")
-						if path ~= "" then
-							self.output_directory = path
-							G_reader_settings:saveSetting("weebcentral_output_directory", path)
-						end
-						UIManager:close(dialog)
-					end,
-				},
-			},
-		},
-	})
-	UIManager:show(dialog)
-	dialog:onShowKeyboard()
+function Weeb:chooseOutputDirectory()
+	DownloadMgr:new({
+		title = _("Choose download folder"),
+		onConfirm = function(path)
+			self.output_directory = path
+			G_reader_settings:saveSetting("weebcentral_output_directory", path)
+		end,
+	}):chooseDir(self.output_directory)
 end
 
 function Weeb:showMessage(message)

@@ -8,12 +8,6 @@
     "koreader/frontend/?.lua",
     "koreader/frontend/?/init.lua"
   ],
-  "workspace.library": [
-    "./koreader"
-  ],
-  "workspace.ignoreDir": [
-    ".vscode",
-    ".git",
-    "target"
-  ]
+  "workspace.library": ["./koreader"],
+  "workspace.ignoreDir": [".vscode", ".git", "target"]
 }

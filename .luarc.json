@@ -1,5 +1,6 @@
 {
   "runtime.version": "LuaJIT",
+
   "runtime.path": [
     "./WeebCentral.koplugin/?.lua",
     "./WeebCentral.koplugin/?/init.lua",
@@ -8,11 +9,6 @@
     "./WeebCentral.koplugin/koreader/frontend/?.lua",
     "./WeebCentral.koplugin/koreader/frontend/?/init.lua"
   ],
-  "workspace.library": [
-    "./WeebCentral.koplugin/koreader"
-  ],
-  "workspace.ignoreDir": [
-    ".git",
-    "target"
-  ]
+  "workspace.library": ["./WeebCentral.koplugin/koreader"],
+  "workspace.ignoreDir": [".git", "target"]
 }

@@ -1,0 +1,111 @@
+name: Build and release Kindle HF plugin
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release tag to create (for example v0.1.0)
+        required: true
+        type: string
+      prerelease:
+        description: Mark this GitHub Release as a pre-release
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build Kindle HF binary and release plugin ZIP
+    runs-on: ubuntu-latest
+    env:
+      KOXTOOLCHAIN_VERSION: 2026.08
+      KOXTOOLCHAIN_SHA256: 8cc7dfbd71abd78f9e947d6b2e20670288a4402edc7b07176bca791f7eaf87d0
+      RUST_TARGET: armv7-unknown-linux-gnueabihf
+      CROSS_PREFIX: arm-kindlehf-linux-gnueabihf
+      RELEASE_TAG: ${{ inputs.version }}
+      PRERELEASE: ${{ inputs.prerelease }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate release tag
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
+            echo "Version must look like v1.2.3 or v1.2.3-rc.1"
+            exit 1
+          fi
+
+      - name: Install archive tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes zstd zip
+
+      - name: Install KOReader Kindle HF toolchain
+        run: |
+          archive="$RUNNER_TEMP/kindlehf.tar.zst"
+          curl --fail --location --retry 3 \
+            "https://github.com/koreader/koxtoolchain/releases/download/${KOXTOOLCHAIN_VERSION}/kindlehf.tar.zst" \
+            --output "$archive"
+          echo "${KOXTOOLCHAIN_SHA256}  ${archive}" | sha256sum --check --status
+          tar --zstd --extract --file "$archive" --directory "$HOME"
+          echo "$HOME/x-tools/${CROSS_PREFIX}/bin" >> "$GITHUB_PATH"
+          "$HOME/x-tools/${CROSS_PREFIX}/bin/${CROSS_PREFIX}-gcc" --version
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: armv7-unknown-linux-gnueabihf
+
+      - name: Run native tests
+        working-directory: weebcentral_core
+        run: cargo test --locked
+
+      - name: Cross-compile Kindle HF core
+        working-directory: weebcentral_core
+        env:
+          CC_armv7_unknown_linux_gnueabihf: arm-kindlehf-linux-gnueabihf-gcc
+          AR_armv7_unknown_linux_gnueabihf: arm-kindlehf-linux-gnueabihf-ar
+        run: cargo build --locked --release --target "$RUST_TARGET"
+
+      - name: Install core into plugin and package ZIP
+        id: package
+        run: |
+          binary="weebcentral_core/target/${RUST_TARGET}/release/weebcentral_core"
+          test -x "$binary"
+          file "$binary" | tee "$RUNNER_TEMP/binary-info.txt"
+          grep -Eiq 'ARM|arm' "$RUNNER_TEMP/binary-info.txt"
+
+          mkdir -p WeebCentral.koplugin/bin dist
+          install -m 755 "$binary" WeebCentral.koplugin/bin/weebcentral_core_dev
+
+          stage="$RUNNER_TEMP/package/WeebCentral.koplugin"
+          mkdir -p "$stage/bin"
+          cp WeebCentral.koplugin/_meta.lua WeebCentral.koplugin/main.lua "$stage/"
+          cp -a WeebCentral.koplugin/lib "$stage/lib"
+          install -m 755 WeebCentral.koplugin/bin/weebcentral_core_dev "$stage/bin/weebcentral_core_dev"
+
+          archive="WeebCentralDownloader-${RELEASE_TAG}-kindlehf.zip"
+          (cd "$RUNNER_TEMP/package" && zip -qr "$GITHUB_WORKSPACE/dist/$archive" WeebCentral.koplugin)
+          sha256sum "dist/$archive" > "dist/$archive.sha256"
+          echo "archive=dist/$archive" >> "$GITHUB_OUTPUT"
+          echo "checksum=dist/$archive.sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease_args=()
+          if [[ "$PRERELEASE" == "true" ]]; then
+            prerelease_args+=(--prerelease)
+          fi
+          gh release create "$RELEASE_TAG" \
+            --target "$GITHUB_SHA" \
+            --title "WeebCentral Downloader $RELEASE_TAG (Kindle HF)" \
+            --generate-notes \
+            "${prerelease_args[@]}" \
+            "${{ steps.package.outputs.archive }}" \
+            "${{ steps.package.outputs.checksum }}"

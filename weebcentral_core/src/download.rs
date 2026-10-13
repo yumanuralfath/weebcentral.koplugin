@@ -9,6 +9,14 @@ use crate::models::{Chapter, DownloadResult};
 use crate::util::{BASE_URL, USER_AGENT, absolute_url, get_text, safe_filename, validate_id};
 use crate::weebcentral::load_chapters;
 
+struct ChapterPages {
+    prefix: String,
+    number_width: usize,
+    extension: String,
+    count: usize,
+    referer: String,
+}
+
 pub fn download_selection(
     series_id: &str,
     selection: &str,
@@ -17,20 +25,22 @@ pub fn download_selection(
     progress_path: &str,
 ) -> Result<DownloadResult, String> {
     validate_id(series_id)?;
+    let progress_path = Path::new(progress_path);
+    if let Some(progress_directory) = progress_path.parent() {
+        fs::create_dir_all(progress_directory).map_err(|error| error.to_string())?;
+    }
+    write_progress(progress_path, "scan", 0, 1, "Loading chapter list");
     let series = load_chapters(series_id)?;
     let selected_indices = parse_selection(selection, series.chapters.len())?;
     let output_dir = Path::new(output_dir);
     fs::create_dir_all(output_dir).map_err(|error| error.to_string())?;
-    if let Some(progress_directory) = Path::new(progress_path).parent() {
-        fs::create_dir_all(progress_directory).map_err(|error| error.to_string())?;
-    }
 
     let result = if volume_name.trim().is_empty() {
         download_individual_chapters(
             &series.chapters,
             &selected_indices,
             output_dir,
-            Path::new(progress_path),
+            progress_path,
         )
     } else {
         download_merged_volume(
@@ -38,7 +48,7 @@ pub fn download_selection(
             &selected_indices,
             volume_name,
             output_dir,
-            Path::new(progress_path),
+            progress_path,
         )
     };
     let _ = fs::remove_file(progress_path);
@@ -99,15 +109,10 @@ fn download_individual_chapters(
 ) -> Result<DownloadResult, String> {
     let mut paths = Vec::new();
     let mut skipped = 0;
+    let mut jobs = Vec::new();
 
-    for (position, chapter_index) in selected_indices.iter().enumerate() {
+    for chapter_index in selected_indices {
         let chapter = &chapters[*chapter_index];
-        write_progress(
-            progress_path,
-            position,
-            selected_indices.len(),
-            &chapter.title,
-        );
         let path = output_dir.join(format!(
             "{:03}-{}.cbz",
             chapter_index + 1,
@@ -118,9 +123,34 @@ fn download_individual_chapters(
             paths.push(path.to_string_lossy().into_owned());
             continue;
         }
+        jobs.push((chapter, path));
+    }
 
+    let prepared = prepare_chapters(jobs.iter().map(|(chapter, _)| *chapter), progress_path)?;
+    let total_images = prepared
+        .iter()
+        .map(|(_, pages)| pages.count)
+        .sum::<usize>()
+        .max(1);
+    let mut completed_images = 0;
+    write_progress(
+        progress_path,
+        "download",
+        0,
+        total_images,
+        "Preparing download",
+    );
+
+    for ((chapter, path), (_, pages)) in jobs.iter().zip(prepared.iter()) {
         let temporary_path = path.with_extension("cbz.part");
-        if let Err(error) = write_chapter_cbz(chapter, &temporary_path) {
+        if let Err(error) = write_chapter_cbz(
+            chapter,
+            pages,
+            &temporary_path,
+            progress_path,
+            &mut completed_images,
+            total_images,
+        ) {
             let _ = fs::remove_file(&temporary_path);
             return Err(error);
         }
@@ -129,8 +159,9 @@ fn download_individual_chapters(
     }
     write_progress(
         progress_path,
-        selected_indices.len(),
-        selected_indices.len(),
+        "download",
+        total_images,
+        total_images,
         "Complete",
     );
 
@@ -153,7 +184,24 @@ fn download_merged_volume(
     }
 
     let temporary_path = path.with_extension("cbz.part");
-    let result = write_volume_cbz(chapters, selected_indices, &temporary_path, progress_path);
+    let selected_chapters = selected_indices
+        .iter()
+        .map(|index| &chapters[*index])
+        .collect::<Vec<_>>();
+    let prepared = prepare_chapters(selected_chapters.iter().copied(), progress_path)?;
+    let total_images = prepared
+        .iter()
+        .map(|(_, pages)| pages.count)
+        .sum::<usize>()
+        .max(1);
+    write_progress(
+        progress_path,
+        "download",
+        0,
+        total_images,
+        "Preparing download",
+    );
+    let result = write_volume_cbz(&prepared, &temporary_path, progress_path, total_images);
     if let Err(error) = result {
         let _ = fs::remove_file(&temporary_path);
         return Err(error);
@@ -166,62 +214,105 @@ fn download_merged_volume(
 }
 
 fn write_volume_cbz(
-    chapters: &[Chapter],
-    selected_indices: &[usize],
+    prepared: &[(&Chapter, ChapterPages)],
     path: &Path,
     progress_path: &Path,
+    total_images: usize,
 ) -> Result<(), String> {
     let file = File::create(path).map_err(|error| error.to_string())?;
     let mut archive = ZipWriter::new(file);
     let options = FileOptions::default().compression_method(CompressionMethod::Deflated);
     let mut page_number = 1;
 
-    for (position, chapter_index) in selected_indices.iter().enumerate() {
-        let chapter = &chapters[*chapter_index];
-        write_progress(
+    let mut completed_images = 0;
+    for (chapter, pages) in prepared {
+        append_chapter_images(
+            chapter,
+            pages,
+            &mut archive,
+            options,
+            &mut page_number,
             progress_path,
-            position,
-            selected_indices.len(),
-            &chapter.title,
-        );
-        append_chapter_images(chapter, &mut archive, options, &mut page_number)?;
+            &mut completed_images,
+            total_images,
+        )?;
     }
     archive.finish().map_err(|error| error.to_string())?;
     write_progress(
         progress_path,
-        selected_indices.len(),
-        selected_indices.len(),
+        "download",
+        total_images,
+        total_images,
         "Complete",
     );
     Ok(())
 }
 
-fn write_chapter_cbz(chapter: &Chapter, path: &Path) -> Result<(), String> {
+fn write_chapter_cbz(
+    chapter: &Chapter,
+    pages: &ChapterPages,
+    path: &Path,
+    progress_path: &Path,
+    completed_images: &mut usize,
+    total_images: usize,
+) -> Result<(), String> {
     let file = File::create(path).map_err(|error| error.to_string())?;
     let mut archive = ZipWriter::new(file);
     let options = FileOptions::default().compression_method(CompressionMethod::Deflated);
     let mut page_number = 1;
-    append_chapter_images(chapter, &mut archive, options, &mut page_number)?;
+    append_chapter_images(
+        chapter,
+        pages,
+        &mut archive,
+        options,
+        &mut page_number,
+        progress_path,
+        completed_images,
+        total_images,
+    )?;
     archive.finish().map_err(|error| error.to_string())?;
     Ok(())
 }
 
+fn prepare_chapters<'a>(
+    chapters: impl Iterator<Item = &'a Chapter>,
+    progress_path: &Path,
+) -> Result<Vec<(&'a Chapter, ChapterPages)>, String> {
+    let chapters = chapters.collect::<Vec<_>>();
+    let total = chapters.len().max(1);
+    write_progress(progress_path, "scan", 0, total, "Reading chapter pages");
+    chapters
+        .iter()
+        .enumerate()
+        .map(|(index, chapter)| {
+            let html = get_text(&chapter.url)?;
+            let pages = page_manifest(chapter, &html)?;
+            write_progress(progress_path, "scan", index + 1, total, &chapter.title);
+            Ok((*chapter, pages))
+        })
+        .collect()
+}
+
 fn append_chapter_images(
     chapter: &Chapter,
+    pages: &ChapterPages,
     archive: &mut ZipWriter<File>,
     options: FileOptions,
     page_number: &mut usize,
+    progress_path: &Path,
+    completed_images: &mut usize,
+    total_images: usize,
 ) -> Result<(), String> {
-    let chapter_html = get_text(&chapter.url)?;
-    let (prefix, number_width, extension) = page_image_pattern(&chapter_html)?;
-    let page_count = get_page_count(&chapter_html);
-    let referer = format!("{BASE_URL}/chapters/{}", chapter.id);
-
-    for image_index in 1..=page_count {
-        let image_url = format!("{prefix}{image_index:0number_width$}{extension}");
+    for image_index in 1..=pages.count {
+        let image_url = format!(
+            "{}{image_index:0width$}{}",
+            pages.prefix,
+            pages.extension,
+            width = pages.number_width
+        );
         let response = ureq::get(&image_url)
             .set("User-Agent", USER_AGENT)
-            .set("Referer", &referer)
+            .set("Referer", &pages.referer)
             .call()
             .map_err(|error| error.to_string())?;
         let mut image_data = Vec::new();
@@ -231,17 +322,25 @@ fn append_chapter_images(
             .map_err(|error| error.to_string())?;
 
         archive
-            .start_file(format!("{page_number:04}{extension}"), options)
+            .start_file(format!("{page_number:04}{}", pages.extension), options)
             .map_err(|error| error.to_string())?;
         archive
             .write_all(&image_data)
             .map_err(|error| error.to_string())?;
         *page_number += 1;
+        *completed_images += 1;
+        write_progress(
+            progress_path,
+            "download",
+            *completed_images,
+            total_images,
+            &chapter.title,
+        );
     }
     Ok(())
 }
 
-fn page_image_pattern(chapter_html: &str) -> Result<(String, usize, String), String> {
+fn page_manifest(chapter: &Chapter, chapter_html: &str) -> Result<ChapterPages, String> {
     let document = scraper::Html::parse_document(chapter_html);
     let selector =
         scraper::Selector::parse("link[rel='preload']").expect("valid first page image selector");
@@ -256,11 +355,13 @@ fn page_image_pattern(chapter_html: &str) -> Result<(String, usize, String), Str
     let captures = pattern
         .captures(&first_page)
         .ok_or_else(|| format!("Unrecognized page image URL: {first_page}"))?;
-    Ok((
-        captures.name("prefix").unwrap().as_str().to_string(),
-        captures.name("number").unwrap().as_str().len(),
-        captures.name("extension").unwrap().as_str().to_string(),
-    ))
+    Ok(ChapterPages {
+        prefix: captures.name("prefix").unwrap().as_str().to_string(),
+        number_width: captures.name("number").unwrap().as_str().len(),
+        extension: captures.name("extension").unwrap().as_str().to_string(),
+        count: get_page_count(chapter_html),
+        referer: format!("{BASE_URL}/chapters/{}", chapter.id),
+    })
 }
 
 fn get_page_count(chapter_html: &str) -> usize {
@@ -272,7 +373,7 @@ fn get_page_count(chapter_html: &str) -> usize {
         .unwrap_or(1)
 }
 
-fn write_progress(path: &Path, current: usize, total: usize, title: &str) {
+fn write_progress(path: &Path, stage: &str, current: usize, total: usize, title: &str) {
     let sanitized_title: String = title
         .chars()
         .map(|character| {
@@ -283,7 +384,7 @@ fn write_progress(path: &Path, current: usize, total: usize, title: &str) {
             }
         })
         .collect();
-    let _ = fs::write(path, format!("{current}|{total}|{sanitized_title}"));
+    let _ = fs::write(path, format!("{stage}|{current}|{total}|{sanitized_title}"));
 }
 
 #[cfg(test)]

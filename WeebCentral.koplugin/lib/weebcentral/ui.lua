@@ -1,15 +1,21 @@
-local ConfirmBox = require("ui/widget/confirmbox")
 local Device = require("device")
+local ButtonDialog = require("ui/widget/buttondialog")
 local DownloadMgr = require("ui/downloadmgr")
+local HorizontalGroup = require("ui/widget/horizontalgroup")
+local HorizontalSpan = require("ui/widget/horizontalspan")
 local ImageWidget = require("ui/widget/imagewidget")
 local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
 local Menu = require("ui/widget/menu")
 local MultiInputDialog = require("ui/widget/multiinputdialog")
 local ProgressbarDialog = require("ui/widget/progressbardialog")
+local TextBoxWidget = require("ui/widget/textboxwidget")
+local TextWidget = require("ui/widget/textwidget")
 local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
 local NetworkMgr = require("ui/network/manager")
+local VerticalGroup = require("ui/widget/verticalgroup")
+local VerticalSpan = require("ui/widget/verticalspan")
 local Screen = Device.screen
 local lfs = require("libs/libkoreader-lfs")
 local _ = require("gettext")
@@ -46,10 +52,14 @@ local function runWithProgress(plugin, message, command, progress_total, ...)
             if file then
                 local status = file:read("*l") or ""
                 file:close()
-                local current = status:match("^(%d+)|")
-                local current_number = current and tonumber(current)
-                if current_number then
-                    progress:reportProgress(math.min(current_number, progress_total))
+                local stage, current, total = status:match("^(%a+)|(%d+)|(%d+)|")
+                current, total = tonumber(current), tonumber(total)
+                if current and total and total > 0 then
+                    local stage_fraction = math.min(current / total, 1)
+                    local fraction = stage == "scan"
+                        and stage_fraction * 0.1
+                        or 0.1 + stage_fraction * 0.9
+                    progress:reportProgress(fraction * progress_total)
                 end
             end
             UIManager:scheduleIn(0.5, poll_progress)
@@ -176,18 +186,8 @@ function UI.showSearchResults(plugin, results)
 
     local items = {}
     for index, result in ipairs(results) do
-        local state
-        if result.cover_path and result.cover_path ~= "" and lfs.attributes(result.cover_path, "mode") == "file" then
-            state = ImageWidget:new({
-                file = result.cover_path,
-                width = Screen:scaleBySize(48),
-                height = Screen:scaleBySize(64),
-                scale_factor = 0,
-            })
-        end
         items[index] = {
             text = result.title,
-            state = state,
             series = result,
         }
     end
@@ -224,26 +224,123 @@ function UI.showMangaInfo(plugin, series)
         return
     end
 
-    local info = {
-        series.title,
-        "",
-        _("Chapters: ") .. #chapters,
-        _("Author: ") .. (series.authors ~= "" and series.authors or _("Unknown")),
-        _("Type: ") .. (series.manga_type ~= "" and series.manga_type or _("Unknown")),
-        _("Status: ") .. (series.status ~= "" and series.status or _("Unknown")),
-    }
-    if series.tags ~= "" then table.insert(info, _("Tags: ") .. series.tags) end
-    if series.description ~= "" then
-        table.insert(info, "")
-        table.insert(info, series.description:sub(1, 700))
+    local dialog_width = math.floor(math.min(Screen:getWidth(), Screen:getHeight()) * 0.9)
+    local cover_width = math.min(Screen:scaleBySize(112), math.floor(dialog_width * 0.27))
+    local cover_height = math.min(Screen:scaleBySize(158), math.floor(Screen:getHeight() * 0.27))
+    local horizontal_gap = Screen:scaleBySize(12)
+    local text_width = dialog_width - cover_width - horizontal_gap - Screen:scaleBySize(36)
+    local header_parts = VerticalGroup:new({
+        align = "left",
+        TextBoxWidget:new({
+            text = series.title,
+            width = text_width,
+            face = require("ui/font"):getFace("cfont", 22),
+            bold = true,
+            alignment = "left",
+            height = Screen:scaleBySize(66),
+            height_adjust = true,
+            height_overflow_show_ellipsis = true,
+        }),
+        VerticalSpan:new({ width = Screen:scaleBySize(8) }),
+        TextWidget:new({
+            text = tostring(#chapters) .. " " .. _("chapters"),
+            face = require("ui/font"):getFace("smallinfofont"),
+        }),
+        TextBoxWidget:new({
+            text = _("Author: ") .. (series.authors ~= "" and series.authors or _("Unknown")),
+            width = text_width,
+            face = require("ui/font"):getFace("smallinfofont"),
+            height = Screen:scaleBySize(42),
+            height_adjust = true,
+            height_overflow_show_ellipsis = true,
+        }),
+        TextBoxWidget:new({
+            text = (series.manga_type ~= "" and series.manga_type or _("Unknown"))
+                .. " · " .. (series.status ~= "" and series.status or _("Unknown")),
+            width = text_width,
+            face = require("ui/font"):getFace("smallinfofont"),
+            height = Screen:scaleBySize(42),
+            height_adjust = true,
+            height_overflow_show_ellipsis = true,
+        }),
+    })
+
+    local cover_widget
+    if series.cover_path and series.cover_path ~= "" and lfs.attributes(series.cover_path, "mode") == "file" then
+        cover_widget = ImageWidget:new({
+            file = series.cover_path,
+            width = cover_width,
+            height = cover_height,
+            scale_factor = 0,
+            file_do_cache = true,
+            alpha = false,
+        })
+    else
+        cover_widget = TextWidget:new({
+            text = _("No cover"),
+            face = require("ui/font"):getFace("smallinfofont"),
+            max_width = cover_width,
+        })
     end
-    UIManager:show(ConfirmBox:new({
-        text = table.concat(info, "\n"),
-        ok_text = _("Choose chapters"),
-        ok_callback = function()
-            UI.openChapterSelection(plugin, series)
-        end,
-    }))
+
+    local header = HorizontalGroup:new({
+        align = "top",
+        cover_widget,
+        HorizontalSpan:new({ width = horizontal_gap }),
+        header_parts,
+    })
+    local content = VerticalGroup:new({
+        align = "left",
+        header,
+        VerticalSpan:new({ width = Screen:scaleBySize(12) }),
+    })
+    if series.tags ~= "" then
+        table.insert(content, TextBoxWidget:new({
+            text = _("Tags: ") .. series.tags,
+            width = dialog_width - Screen:scaleBySize(36),
+            face = require("ui/font"):getFace("smallinfofont"),
+            height = Screen:scaleBySize(54),
+            height_adjust = true,
+            height_overflow_show_ellipsis = true,
+        }))
+    end
+    if series.description ~= "" then
+        table.insert(content, VerticalSpan:new({ width = Screen:scaleBySize(8) }))
+        table.insert(content, TextBoxWidget:new({
+            text = series.description:sub(1, 650),
+            width = dialog_width - Screen:scaleBySize(36),
+            face = require("ui/font"):getFace("smallinfofont"),
+            height = math.floor(Screen:getHeight() * 0.22),
+            height_adjust = true,
+            height_overflow_show_ellipsis = true,
+            alignment = "left",
+        }))
+    end
+    local dialog
+    dialog = ButtonDialog:new({
+        title = _("Manga details"),
+        buttons = {
+            {
+                {
+                    text = _("Close"),
+                    id = "close",
+                    callback = function()
+                        UIManager:close(dialog)
+                    end,
+                },
+                {
+                    text = _("Choose chapters"),
+                    is_enter_default = true,
+                    callback = function()
+                        UIManager:close(dialog)
+                        UI.openChapterSelection(plugin, series)
+                    end,
+                },
+            },
+        },
+        _added_widgets = { content },
+    })
+    UIManager:show(dialog)
 end
 
 function UI.openChapterSelection(plugin, series)
@@ -307,7 +404,7 @@ function UI.downloadSelection(plugin, series, selection, volume_name)
         plugin,
         _("Downloading selected chapters..."),
         "download",
-        selection_count,
+        1000,
         series.id,
         selection,
         volume_name,

@@ -127,7 +127,11 @@ fn download_individual_chapters(
         jobs.push((chapter, path));
     }
 
-    let prepared = prepare_chapters(source, jobs.iter().map(|(chapter, _)| *chapter), progress_path)?;
+    let prepared = prepare_chapters(
+        source,
+        jobs.iter().map(|(chapter, _)| *chapter),
+        progress_path,
+    )?;
     let total_images = prepared
         .iter()
         .map(|(_, pages)| pages.len())
@@ -209,7 +213,13 @@ fn download_merged_volume(
         total_images,
         "Preparing download",
     );
-    let result = write_volume_cbz(source, &prepared, &temporary_path, progress_path, total_images);
+    let result = write_volume_cbz(
+        source,
+        &prepared,
+        &temporary_path,
+        progress_path,
+        total_images,
+    );
     if let Err(error) = result {
         let _ = fs::remove_file(&temporary_path);
         return Err(error);
@@ -231,17 +241,18 @@ fn write_volume_cbz(
     let file = File::create(path).map_err(|error| error.to_string())?;
     let mut archive = ZipWriter::new(file);
     let options = FileOptions::default().compression_method(CompressionMethod::Deflated);
-    let mut page_number = 1;
 
     let mut completed_images = 0;
-    for (chapter, pages) in prepared {
+    for (index, (chapter, pages)) in prepared.iter().enumerate() {
+        // Prefix keeps reading order correct and folder names unique.
+        let folder = format!("{:04} - {}", index + 1, safe_filename(&chapter.title));
         append_chapter_images(
             source,
             chapter,
             pages,
+            &folder,
             &mut archive,
             options,
-            &mut page_number,
             progress_path,
             &mut completed_images,
             total_images,
@@ -270,14 +281,14 @@ fn write_chapter_cbz(
     let file = File::create(path).map_err(|error| error.to_string())?;
     let mut archive = ZipWriter::new(file);
     let options = FileOptions::default().compression_method(CompressionMethod::Deflated);
-    let mut page_number = 1;
+    let folder = safe_filename(&chapter.title);
     append_chapter_images(
         source,
         chapter,
         pages,
+        &folder,
         &mut archive,
         options,
-        &mut page_number,
         progress_path,
         completed_images,
         total_images,
@@ -310,25 +321,24 @@ fn append_chapter_images(
     source: &dyn Source,
     chapter: &Chapter,
     pages: &[PageImage],
+    folder: &str,
     archive: &mut ZipWriter<File>,
     options: FileOptions,
-    page_number: &mut usize,
     progress_path: &Path,
     completed_images: &mut usize,
     total_images: usize,
 ) -> Result<(), String> {
-    for page in pages {
+    for (index, page) in pages.iter().enumerate() {
         let image_data = source.fetch_image(page)?;
         archive
             .start_file(
-                format!("{page_number:04}{}", image_extension(&page.url)),
+                format!("{folder}/{:04}{}", index + 1, image_extension(&page.url)),
                 options,
             )
             .map_err(|error| error.to_string())?;
         archive
             .write_all(&image_data)
             .map_err(|error| error.to_string())?;
-        *page_number += 1;
         *completed_images += 1;
         write_progress(
             progress_path,
@@ -442,7 +452,11 @@ mod tests {
         .unwrap();
         assert_eq!(result.paths.len(), 2);
         assert!(result.paths[0].ends_with("2 - Mock Manga.cbz"));
-        assert_eq!(entry_names(&result.paths[0]), ["0001.png", "0002.png"]);
+        // assert_eq!(entry_names(&result.paths[0]), ["0001.png", "0002.png"]);
+        assert_eq!(
+            entry_names(&result.paths[0]),
+            ["Chapter 2/0001.png", "Chapter 2/0002.png"]
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -461,7 +475,13 @@ mod tests {
         .unwrap();
         assert_eq!(result.paths.len(), 1);
         assert_eq!(entry_names(&result.paths[0]).len(), 6);
-        assert_eq!(entry_names(&result.paths[0])[5], "0006.png");
+        // assert_eq!(entry_names(&result.paths[0])[5], "0006.png");
+
+        // merges_chapters_into_one_volume
+        let names = entry_names(&result.paths[0]);
+        assert_eq!(names.len(), 6);
+        assert_eq!(names[0], "0001 - Chapter 1/0001.png");
+        assert_eq!(names[5], "0003 - Chapter 3/0002.png");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -472,6 +492,18 @@ mod tests {
         assert_eq!(chapter_filename(1, "One Piece"), "2 - One Piece.cbz");
 
         assert_eq!(chapter_filename(9, "One Piece"), "10 - One Piece.cbz");
+
+        // // downloads_one_cbz_per_chapter_from_any_source
+        // assert_eq!(
+        //     entry_names(&result.paths[0]),
+        //     ["Chapter 2/0001.png", "Chapter 2/0002.png"]
+        // );
+        //
+        // // merges_chapters_into_one_volume
+        // let names = entry_names(&result.paths[0]);
+        // assert_eq!(names.len(), 6);
+        // assert_eq!(names[0], "0001 - Chapter 1/0001.png");
+        // assert_eq!(names[5], "0003 - Chapter 3/0002.png");
     }
 
     #[test]

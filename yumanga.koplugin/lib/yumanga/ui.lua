@@ -16,6 +16,7 @@ local Sources = require("lib/yumanga/sources")
 local ChapterPicker = require("lib/yumanga/chapter_picker")
 local DetailView = require("lib/yumanga/detail_view")
 local ResultsView = require("lib/yumanga/results_view")
+local Format = require("lib/yumanga/format")
 local UI = {}
 
 local function isSearchDetailsEnabled()
@@ -328,6 +329,9 @@ function UI.showMangaInfo(plugin, series)
 			on_enter_numbers = function()
 				UI.openChapterSelection(plugin, series)
 			end,
+			on_quick = function(mode)
+				UI.askQuickRange(plugin, series, mode)
+			end,
 			on_download = function(selection, count)
 				UI.promptVolumeName(plugin, series, selection, count)
 			end,
@@ -386,6 +390,55 @@ function UI.promptVolumeName(plugin, series, selection, count, on_finished)
 								on_finished(succeeded == true)
 							end
 						end)
+					end,
+				},
+			},
+		},
+	})
+	UIManager:show(dialog)
+	dialog:onShowKeyboard()
+end
+
+-- Asks how many chapters, then downloads the first or the latest N.
+-- `mode` is "first" (oldest chapters) or "latest" (newest chapters).
+function UI.askQuickRange(plugin, series, mode)
+	local total = #series.chapters
+	local builder = mode == "first" and Format.first or Format.latest
+	local dialog
+	dialog = InputDialog:new({
+		title = mode == "first" and _("Download first chapters") or _("Download latest chapters"),
+		input = tostring(plugin.last_quick_count or 5),
+		input_type = "number",
+		input_hint = string.format(_("1 - %d"), total),
+		description = mode == "first" and string.format(_("How many of the oldest chapters? (max %d)"), total)
+			or string.format(_("How many of the newest chapters? (max %d)"), total),
+		buttons = {
+			{
+				{
+					text = _("Cancel"),
+					id = "close",
+					callback = function()
+						UIManager:close(dialog)
+					end,
+				},
+				{
+					text = _("Next"),
+					is_enter_default = true,
+					callback = function()
+						local input_text = dialog:getInputText():match("^%s*(.-)%s*$")
+						local amount = tonumber(input_text)
+						if not amount or amount < 1 then
+							showMessage(_("Enter a number of chapters (1 or more)."))
+							return
+						end
+						amount = math.min(math.floor(amount), total)
+						plugin.last_quick_count = amount
+						local selection, count = builder(total, amount)
+						if not selection then
+							return
+						end
+						UIManager:close(dialog)
+						UI.promptVolumeName(plugin, series, selection, count)
 					end,
 				},
 			},

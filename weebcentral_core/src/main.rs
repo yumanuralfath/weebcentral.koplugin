@@ -1,8 +1,8 @@
 mod cli;
 mod download;
 mod models;
+mod sources;
 mod util;
-mod weebcentral;
 
 fn main() -> std::process::ExitCode {
     cli::run()

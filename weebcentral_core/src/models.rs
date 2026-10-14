@@ -42,3 +42,17 @@ pub struct DownloadResult {
     pub paths: Vec<String>,
     pub skipped: usize,
 }
+
+/// One page image of a chapter.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PageImage {
+    pub url: String,
+    /// Sent as the `Referer` header when set (many sites hotlink-protect images).
+    pub referer: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct SourceInfo {
+    pub id: String,
+    pub name: String,
+}

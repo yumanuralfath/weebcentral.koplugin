@@ -1,12 +1,46 @@
+//! weebcentral.com
+use regex::Regex;
 use scraper::{Html, Selector};
 use std::fs;
 use std::path::Path;
 
-use crate::models::{Chapter, SearchResult, SeriesChapters};
+use super::{SearchOptions, Source};
+use crate::models::{Chapter, PageImage, SearchResult, SeriesChapters};
 use crate::util::{
-    BASE_URL, USER_AGENT, absolute_url, get_text, id_from_href, normalize_whitespace,
-    read_response_text,
+    USER_AGENT, absolute_url, get_text, id_from_href, normalize_whitespace, read_response_text,
+    validate_id,
 };
+
+const BASE_URL: &str = "https://weebcentral.com";
+
+pub struct WeebCentral;
+
+impl Source for WeebCentral {
+    fn id(&self) -> &'static str {
+        "weebcentral"
+    }
+
+    fn name(&self) -> &'static str {
+        "WeebCentral"
+    }
+
+    fn search(&self, keyword: &str, options: &SearchOptions) -> Result<Vec<SearchResult>, String> {
+        search(keyword, options.cover_cache_dir, options.with_details)
+    }
+
+    fn series(&self, series_id: &str) -> Result<SeriesChapters, String> {
+        load_chapters(series_id)
+    }
+
+    fn pages(&self, chapter: &Chapter) -> Result<Vec<PageImage>, String> {
+        let html = get_text(&chapter.url)?;
+        parse_pages(chapter, &html)
+    }
+}
+
+fn abs(value: &str) -> String {
+    absolute_url(BASE_URL, value)
+}
 
 const SEARCH_URL: &str = "https://weebcentral.com/search/simple?location=main";
 
@@ -82,13 +116,13 @@ pub fn search(
                             .and_then(|image| image.value().attr("src"))
                     })
             })
-            .map(absolute_url)
+            .map(abs)
             .unwrap_or_default();
 
         results.push(SearchResult {
             id: id.to_string(),
             title,
-            url: absolute_url(href),
+            url: abs(href),
             cover_url,
             cover_path: String::new(),
             authors: String::new(),
@@ -135,7 +169,7 @@ fn enrich_results(results: &mut [SearchResult], cover_cache_dir: &str, with_deta
 }
 
 pub fn load_chapters(series_id: &str) -> Result<SeriesChapters, String> {
-    crate::util::validate_id(series_id)?;
+    validate_id(series_id)?;
     let series_url = format!("{BASE_URL}/series/{series_id}");
     let series_document = Html::parse_document(&get_text(&series_url)?);
     let title_selector = Selector::parse("h1").expect("valid series title selector");
@@ -163,7 +197,7 @@ pub fn load_chapters(series_id: &str) -> Result<SeriesChapters, String> {
                         .and_then(|image| image.value().attr("src"))
                 })
         })
-        .map(absolute_url)
+        .map(abs)
         .unwrap_or_default();
     let meta = parse_series_meta(&series_document);
     let description = list_item_value(&series_document, "Description");
@@ -203,7 +237,7 @@ pub fn load_chapters(series_id: &str) -> Result<SeriesChapters, String> {
         chapters.push(Chapter {
             id: id.to_string(),
             title,
-            url: absolute_url(href),
+            url: abs(href),
             published_at,
         });
     }
@@ -222,6 +256,45 @@ pub fn load_chapters(series_id: &str) -> Result<SeriesChapters, String> {
         description,
         chapters,
     })
+}
+
+/// Page images of a chapter. The reader HTML only preloads page 1, so the
+/// remaining URLs are derived from its numbering scheme ("...-001.png").
+fn parse_pages(chapter: &Chapter, chapter_html: &str) -> Result<Vec<PageImage>, String> {
+    let document = Html::parse_document(chapter_html);
+    let selector =
+        Selector::parse("link[rel='preload']").expect("valid first page image selector");
+    let first_page = document
+        .select(&selector)
+        .next()
+        .and_then(|link| link.value().attr("href"))
+        .map(abs)
+        .ok_or_else(|| "Could not find the first page image URL".to_string())?;
+    let pattern = Regex::new(r"^(?P<prefix>.+-)(?P<number>\d+)(?P<extension>\.\w+)(?:\?.*)?$")
+        .map_err(|error| error.to_string())?;
+    let captures = pattern
+        .captures(&first_page)
+        .ok_or_else(|| format!("Unrecognized page image URL: {first_page}"))?;
+    let prefix = &captures["prefix"];
+    let width = captures["number"].len();
+    let extension = &captures["extension"];
+    let referer = format!("{BASE_URL}/chapters/{}", chapter.id);
+
+    Ok((1..=page_count(chapter_html))
+        .map(|number| PageImage {
+            url: format!("{prefix}{number:0width$}{extension}"),
+            referer: Some(referer.clone()),
+        })
+        .collect())
+}
+
+fn page_count(chapter_html: &str) -> usize {
+    let pattern = Regex::new(r"page === (\d+) \?").expect("valid page count pattern");
+    pattern
+        .captures_iter(chapter_html)
+        .filter_map(|capture| capture[1].parse::<usize>().ok())
+        .max()
+        .unwrap_or(1)
 }
 
 fn list_item_value(document: &Html, label: &str) -> String {
@@ -300,7 +373,47 @@ fn cache_cover(id: &str, cover_url: &str, cache_dir: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Html, parse_series_meta};
+    use super::{Chapter, Html, parse_pages, parse_series_meta};
+
+    #[test]
+    fn derives_every_page_url_from_the_first_one() {
+        let chapter = Chapter {
+            id: "ABC".into(),
+            title: "Chapter 1".into(),
+            url: String::new(),
+            published_at: String::new(),
+        };
+        let html = r#"<html><head>
+            <link rel="preload" href="https://cdn.example/m/001-009.png" as="image">
+            </head><body>
+            x-show="page === 1 ? a" x-show="page === 3 ? b"
+            </body></html>"#;
+        let pages = parse_pages(&chapter, html).unwrap();
+        let urls: Vec<_> = pages.iter().map(|page| page.url.as_str()).collect();
+        assert_eq!(
+            urls,
+            [
+                "https://cdn.example/m/001-001.png",
+                "https://cdn.example/m/001-002.png",
+                "https://cdn.example/m/001-003.png"
+            ]
+        );
+        assert_eq!(
+            pages[0].referer.as_deref(),
+            Some("https://weebcentral.com/chapters/ABC")
+        );
+    }
+
+    #[test]
+    fn missing_preload_link_is_an_error() {
+        let chapter = Chapter {
+            id: "ABC".into(),
+            title: String::new(),
+            url: String::new(),
+            published_at: String::new(),
+        };
+        assert!(parse_pages(&chapter, "<html></html>").is_err());
+    }
 
     #[test]
     fn parses_series_metadata_labels() {

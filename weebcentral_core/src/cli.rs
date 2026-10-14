@@ -3,49 +3,76 @@ use serde_json::json;
 use std::env;
 use std::process::ExitCode;
 
-use crate::{download, weebcentral};
+use crate::models::SourceInfo;
+use crate::sources::{self, SearchOptions, Source};
+use crate::download;
+
+const USAGE: &str = "Usage:
+  core sources
+  core search   <source> <keyword> [cover-cache-dir] [with-details: 0|1]
+  core chapters <source> <series-id>
+  core download <source> <series-id> <selection> <volume-name> <output-dir> <progress-file>";
 
 pub fn run() -> ExitCode {
-    let mut arguments = env::args().skip(1);
-    match arguments.next().as_deref() {
-        Some("search") => match arguments.next() {
-            Some(keyword) if !keyword.trim().is_empty() => {
-                let cover_cache_dir = arguments.next().unwrap_or_default();
-                // Optional third argument: "0" skips the per-series detail requests.
-                let with_details = arguments.next().as_deref() != Some("0");
-                emit_result(weebcentral::search(&keyword, &cover_cache_dir, with_details))
-            }
-            _ => emit_error("Search keyword is required"),
-        },
-        Some("chapters") => match arguments.next() {
-            Some(series_id) => emit_result(weebcentral::load_chapters(&series_id)),
-            None => emit_error("Series ID is required"),
-        },
-        Some("download") => match (
-            arguments.next(),
-            arguments.next(),
-            arguments.next(),
-            arguments.next(),
-            arguments.next(),
-        ) {
-            (
-                Some(series_id),
-                Some(selection),
-                Some(volume_name),
-                Some(output_dir),
-                Some(progress_path),
-            ) => emit_result(download::download_selection(
-                &series_id,
-                &selection,
-                &volume_name,
-                &output_dir,
-                &progress_path,
-            )),
-            _ => emit_error(
-                "Usage: weebcentral_core_dev download <series-id> <selection> <volume-name> <output-dir> <progress-file>",
+    let arguments: Vec<String> = env::args().skip(1).collect();
+    let argument = |index: usize| arguments.get(index).map(String::as_str);
+
+    match argument(0) {
+        Some("sources") => emit_result(Ok(sources::all()
+            .iter()
+            .map(|source| SourceInfo {
+                id: source.id().to_string(),
+                name: source.name().to_string(),
+            })
+            .collect::<Vec<_>>())),
+        Some("search") => with_source(argument(1), |source| match argument(2) {
+            Some(keyword) if !keyword.trim().is_empty() => source.search(
+                keyword,
+                &SearchOptions {
+                    cover_cache_dir: argument(3).unwrap_or_default(),
+                    // "0" skips the per-series detail requests.
+                    with_details: argument(4) != Some("0"),
+                },
             ),
-        },
-        _ => emit_error("Usage: weebcentral_core_dev search <keyword>"),
+            _ => Err("Search keyword is required".to_string()),
+        }),
+        Some("chapters") => with_source(argument(1), |source| match argument(2) {
+            Some(series_id) => source.series(series_id),
+            None => Err("Series ID is required".to_string()),
+        }),
+        Some("download") => with_source(argument(1), |source| {
+            match (argument(2), argument(3), argument(4), argument(5), argument(6)) {
+                (
+                    Some(series_id),
+                    Some(selection),
+                    Some(volume_name),
+                    Some(output_dir),
+                    Some(progress_path),
+                ) => download::download_selection(
+                    source,
+                    series_id,
+                    selection,
+                    volume_name,
+                    output_dir,
+                    progress_path,
+                ),
+                _ => Err(USAGE.to_string()),
+            }
+        }),
+        _ => emit_error(USAGE),
+    }
+}
+
+fn with_source<T: Serialize>(
+    source_id: Option<&str>,
+    action: impl FnOnce(&dyn Source) -> Result<T, String>,
+) -> ExitCode {
+    let Some(source_id) = source_id else {
+        return emit_error("Source ID is required");
+    };
+    match sources::find(source_id) {
+        Some(source) => emit_result(action(source.as_ref())),
+        None => emit_error(format!("Unknown source: {source_id}")),
     }
 }
 

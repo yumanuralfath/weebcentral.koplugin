@@ -1,42 +1,37 @@
-use regex::Regex;
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::Path;
 use zip::write::FileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
-use crate::models::{Chapter, DownloadResult, SeriesChapters};
-use crate::util::{BASE_URL, USER_AGENT, absolute_url, get_text, safe_filename, validate_id};
-use crate::weebcentral::load_chapters;
+use crate::models::{Chapter, DownloadResult, PageImage, SeriesChapters};
+use crate::sources::Source;
+use crate::util::{image_extension, safe_filename};
 
-struct ChapterPages {
-    prefix: String,
-    number_width: usize,
-    extension: String,
-    count: usize,
-    referer: String,
-}
+/// A chapter together with its resolved page images.
+type Prepared<'a> = (&'a Chapter, Vec<PageImage>);
 
 pub fn download_selection(
+    source: &dyn Source,
     series_id: &str,
     selection: &str,
     volume_name: &str,
     output_dir: &str,
     progress_path: &str,
 ) -> Result<DownloadResult, String> {
-    validate_id(series_id)?;
     let progress_path = Path::new(progress_path);
     if let Some(progress_directory) = progress_path.parent() {
         fs::create_dir_all(progress_directory).map_err(|error| error.to_string())?;
     }
     write_progress(progress_path, "scan", 0, 1, "Loading chapter list");
-    let series = load_chapters(series_id)?;
+    let series = source.series(series_id)?;
     let selected_indices = parse_selection(selection, series.chapters.len())?;
     let output_dir = Path::new(output_dir);
     fs::create_dir_all(output_dir).map_err(|error| error.to_string())?;
 
     let result = if volume_name.trim().is_empty() {
         download_individual_chapters(
+            source,
             &series,
             &series.chapters,
             &selected_indices,
@@ -45,6 +40,7 @@ pub fn download_selection(
         )
     } else {
         download_merged_volume(
+            source,
             &series,
             &series.chapters,
             &selected_indices,
@@ -104,6 +100,7 @@ fn parse_chapter_number(value: &str, chapter_count: usize) -> Result<usize, Stri
 }
 
 fn download_individual_chapters(
+    source: &dyn Source,
     series_chapter: &SeriesChapters,
     chapters: &[Chapter],
     selected_indices: &[usize],
@@ -130,10 +127,10 @@ fn download_individual_chapters(
         jobs.push((chapter, path));
     }
 
-    let prepared = prepare_chapters(jobs.iter().map(|(chapter, _)| *chapter), progress_path)?;
+    let prepared = prepare_chapters(source, jobs.iter().map(|(chapter, _)| *chapter), progress_path)?;
     let total_images = prepared
         .iter()
-        .map(|(_, pages)| pages.count)
+        .map(|(_, pages)| pages.len())
         .sum::<usize>()
         .max(1);
     let mut completed_images = 0;
@@ -148,6 +145,7 @@ fn download_individual_chapters(
     for ((chapter, path), (_, pages)) in jobs.iter().zip(prepared.iter()) {
         let temporary_path = path.with_extension("cbz.part");
         if let Err(error) = write_chapter_cbz(
+            source,
             chapter,
             pages,
             &temporary_path,
@@ -173,6 +171,7 @@ fn download_individual_chapters(
 }
 
 fn download_merged_volume(
+    source: &dyn Source,
     series_chapter: &SeriesChapters,
     chapters: &[Chapter],
     selected_indices: &[usize],
@@ -197,10 +196,10 @@ fn download_merged_volume(
         .iter()
         .map(|index| &chapters[*index])
         .collect::<Vec<_>>();
-    let prepared = prepare_chapters(selected_chapters.iter().copied(), progress_path)?;
+    let prepared = prepare_chapters(source, selected_chapters.iter().copied(), progress_path)?;
     let total_images = prepared
         .iter()
-        .map(|(_, pages)| pages.count)
+        .map(|(_, pages)| pages.len())
         .sum::<usize>()
         .max(1);
     write_progress(
@@ -210,7 +209,7 @@ fn download_merged_volume(
         total_images,
         "Preparing download",
     );
-    let result = write_volume_cbz(&prepared, &temporary_path, progress_path, total_images);
+    let result = write_volume_cbz(source, &prepared, &temporary_path, progress_path, total_images);
     if let Err(error) = result {
         let _ = fs::remove_file(&temporary_path);
         return Err(error);
@@ -223,7 +222,8 @@ fn download_merged_volume(
 }
 
 fn write_volume_cbz(
-    prepared: &[(&Chapter, ChapterPages)],
+    source: &dyn Source,
+    prepared: &[Prepared],
     path: &Path,
     progress_path: &Path,
     total_images: usize,
@@ -236,6 +236,7 @@ fn write_volume_cbz(
     let mut completed_images = 0;
     for (chapter, pages) in prepared {
         append_chapter_images(
+            source,
             chapter,
             pages,
             &mut archive,
@@ -258,8 +259,9 @@ fn write_volume_cbz(
 }
 
 fn write_chapter_cbz(
+    source: &dyn Source,
     chapter: &Chapter,
-    pages: &ChapterPages,
+    pages: &[PageImage],
     path: &Path,
     progress_path: &Path,
     completed_images: &mut usize,
@@ -270,6 +272,7 @@ fn write_chapter_cbz(
     let options = FileOptions::default().compression_method(CompressionMethod::Deflated);
     let mut page_number = 1;
     append_chapter_images(
+        source,
         chapter,
         pages,
         &mut archive,
@@ -284,9 +287,10 @@ fn write_chapter_cbz(
 }
 
 fn prepare_chapters<'a>(
+    source: &dyn Source,
     chapters: impl Iterator<Item = &'a Chapter>,
     progress_path: &Path,
-) -> Result<Vec<(&'a Chapter, ChapterPages)>, String> {
+) -> Result<Vec<Prepared<'a>>, String> {
     let chapters = chapters.collect::<Vec<_>>();
     let total = chapters.len().max(1);
     write_progress(progress_path, "scan", 0, total, "Reading chapter pages");
@@ -294,8 +298,7 @@ fn prepare_chapters<'a>(
         .iter()
         .enumerate()
         .map(|(index, chapter)| {
-            let html = get_text(&chapter.url)?;
-            let pages = page_manifest(chapter, &html)?;
+            let pages = source.pages(chapter)?;
             write_progress(progress_path, "scan", index + 1, total, &chapter.title);
             Ok((*chapter, pages))
         })
@@ -304,8 +307,9 @@ fn prepare_chapters<'a>(
 
 #[allow(clippy::too_many_arguments)]
 fn append_chapter_images(
+    source: &dyn Source,
     chapter: &Chapter,
-    pages: &ChapterPages,
+    pages: &[PageImage],
     archive: &mut ZipWriter<File>,
     options: FileOptions,
     page_number: &mut usize,
@@ -313,26 +317,13 @@ fn append_chapter_images(
     completed_images: &mut usize,
     total_images: usize,
 ) -> Result<(), String> {
-    for image_index in 1..=pages.count {
-        let image_url = format!(
-            "{}{image_index:0width$}{}",
-            pages.prefix,
-            pages.extension,
-            width = pages.number_width
-        );
-        let response = ureq::get(&image_url)
-            .set("User-Agent", USER_AGENT)
-            .set("Referer", &pages.referer)
-            .call()
-            .map_err(|error| error.to_string())?;
-        let mut image_data = Vec::new();
-        response
-            .into_reader()
-            .read_to_end(&mut image_data)
-            .map_err(|error| error.to_string())?;
-
+    for page in pages {
+        let image_data = source.fetch_image(page)?;
         archive
-            .start_file(format!("{page_number:04}{}", pages.extension), options)
+            .start_file(
+                format!("{page_number:04}{}", image_extension(&page.url)),
+                options,
+            )
             .map_err(|error| error.to_string())?;
         archive
             .write_all(&image_data)
@@ -348,39 +339,6 @@ fn append_chapter_images(
         );
     }
     Ok(())
-}
-
-fn page_manifest(chapter: &Chapter, chapter_html: &str) -> Result<ChapterPages, String> {
-    let document = scraper::Html::parse_document(chapter_html);
-    let selector =
-        scraper::Selector::parse("link[rel='preload']").expect("valid first page image selector");
-    let first_page = document
-        .select(&selector)
-        .next()
-        .and_then(|link| link.value().attr("href"))
-        .map(absolute_url)
-        .ok_or_else(|| "Could not find the first page image URL".to_string())?;
-    let pattern = Regex::new(r"^(?P<prefix>.+-)(?P<number>\d+)(?P<extension>\.\w+)(?:\?.*)?$")
-        .map_err(|error| error.to_string())?;
-    let captures = pattern
-        .captures(&first_page)
-        .ok_or_else(|| format!("Unrecognized page image URL: {first_page}"))?;
-    Ok(ChapterPages {
-        prefix: captures.name("prefix").unwrap().as_str().to_string(),
-        number_width: captures.name("number").unwrap().as_str().len(),
-        extension: captures.name("extension").unwrap().as_str().to_string(),
-        count: get_page_count(chapter_html),
-        referer: format!("{BASE_URL}/chapters/{}", chapter.id),
-    })
-}
-
-fn get_page_count(chapter_html: &str) -> usize {
-    let pattern = Regex::new(r"page === (\d+) \?").expect("valid page count pattern");
-    pattern
-        .captures_iter(chapter_html)
-        .filter_map(|capture| capture[1].parse::<usize>().ok())
-        .max()
-        .unwrap_or(1)
 }
 
 fn write_progress(path: &Path, stage: &str, current: usize, total: usize, title: &str) {
@@ -403,7 +361,109 @@ fn chapter_filename(chapter_index: usize, manga_name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{chapter_filename, parse_selection};
+    use super::{chapter_filename, download_selection, parse_selection};
+    use crate::models::{Chapter, PageImage, SearchResult, SeriesChapters};
+    use crate::sources::{SearchOptions, Source};
+
+    /// In-memory source: proves the downloader needs nothing site specific.
+    struct MockSource;
+
+    impl Source for MockSource {
+        fn id(&self) -> &'static str {
+            "mock"
+        }
+        fn name(&self) -> &'static str {
+            "Mock"
+        }
+        fn search(&self, _: &str, _: &SearchOptions) -> Result<Vec<SearchResult>, String> {
+            Ok(Vec::new())
+        }
+        fn series(&self, series_id: &str) -> Result<SeriesChapters, String> {
+            let chapters = (1..=3)
+                .map(|n| Chapter {
+                    id: format!("c{n}"),
+                    title: format!("Chapter {n}"),
+                    url: format!("mock://chapter/{n}"),
+                    published_at: String::new(),
+                })
+                .collect();
+            Ok(SeriesChapters {
+                id: series_id.to_string(),
+                title: "Mock Manga".to_string(),
+                url: String::new(),
+                cover_url: String::new(),
+                authors: String::new(),
+                tags: String::new(),
+                manga_type: String::new(),
+                status: String::new(),
+                released: String::new(),
+                description: String::new(),
+                chapters,
+            })
+        }
+        fn pages(&self, chapter: &Chapter) -> Result<Vec<PageImage>, String> {
+            Ok((1..=2)
+                .map(|n| PageImage {
+                    url: format!("{}/{n}.png", chapter.url),
+                    referer: None,
+                })
+                .collect())
+        }
+        fn fetch_image(&self, page: &PageImage) -> Result<Vec<u8>, String> {
+            Ok(page.url.clone().into_bytes())
+        }
+    }
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("wc_test_{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    fn entry_names(path: &str) -> Vec<String> {
+        let mut archive = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
+        (0..archive.len())
+            .map(|i| archive.by_index(i).unwrap().name().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn downloads_one_cbz_per_chapter_from_any_source() {
+        let dir = temp_dir("single");
+        let progress = dir.join("p.progress");
+        let result = download_selection(
+            &MockSource,
+            "series",
+            "2-3",
+            "",
+            dir.to_str().unwrap(),
+            progress.to_str().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result.paths.len(), 2);
+        assert!(result.paths[0].ends_with("2 - Mock Manga.cbz"));
+        assert_eq!(entry_names(&result.paths[0]), ["0001.png", "0002.png"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn merges_chapters_into_one_volume() {
+        let dir = temp_dir("volume");
+        let progress = dir.join("p.progress");
+        let result = download_selection(
+            &MockSource,
+            "series",
+            "1-3",
+            "Vol 1",
+            dir.to_str().unwrap(),
+            progress.to_str().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result.paths.len(), 1);
+        assert_eq!(entry_names(&result.paths[0]).len(), 6);
+        assert_eq!(entry_names(&result.paths[0])[5], "0006.png");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn generates_manga_filename_without_zero_padding() {

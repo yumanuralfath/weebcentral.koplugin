@@ -21,6 +21,7 @@ local Widgets = require("lib/weebcentral/widgets")
 
 local ResultsView = PagedList:extend({
 	results = nil,
+	show_source = false, -- show the source name (only useful with several sources)
 	on_select = nil, -- function(result)
 })
 
@@ -56,6 +57,7 @@ function ResultsView:buildRow(result, index)
 	local status = Format.clean(result.status)
 	local manga_type = Format.clean(result.manga_type)
 	local released = Format.clean(result.released)
+	local source_name = self.show_source and Format.clean(result.source_name) or ""
 	local tag_summary = Format.tagSummary(result.tags, 4)
 
 	local lines = VerticalGroup:new({ align = "left" })
@@ -84,7 +86,7 @@ function ResultsView:buildRow(result, index)
 			})
 		)
 	end
-	if status ~= "" or manga_type ~= "" or released ~= "" then
+	if status ~= "" or manga_type ~= "" or released ~= "" or source_name ~= "" then
 		table.insert(lines, VerticalSpan:new({ width = self.line_gap }))
 		local meta = HorizontalGroup:new({ align = "center" })
 		if status ~= "" then
@@ -92,6 +94,9 @@ function ResultsView:buildRow(result, index)
 			table.insert(meta, HorizontalSpan:new({ width = pad }))
 		end
 		local meta_text = {}
+		if source_name ~= "" then
+			meta_text[#meta_text + 1] = source_name
+		end
 		if manga_type ~= "" then
 			meta_text[#meta_text + 1] = manga_type
 		end

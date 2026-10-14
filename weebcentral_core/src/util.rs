@@ -1,6 +1,5 @@
 use std::io::Read;
 
-pub const BASE_URL: &str = "https://weebcentral.com";
 pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
 
 pub fn get_text(url: &str) -> Result<String, String> {
@@ -9,6 +8,35 @@ pub fn get_text(url: &str) -> Result<String, String> {
         .call()
         .map_err(|error| error.to_string())?;
     read_response_text(response)
+}
+
+pub fn get_bytes(url: &str, referer: Option<&str>) -> Result<Vec<u8>, String> {
+    let mut request = ureq::get(url).set("User-Agent", USER_AGENT);
+    if let Some(referer) = referer {
+        request = request.set("Referer", referer);
+    }
+    let response = request.call().map_err(|error| error.to_string())?;
+    let mut data = Vec::new();
+    response
+        .into_reader()
+        .read_to_end(&mut data)
+        .map_err(|error| error.to_string())?;
+    Ok(data)
+}
+
+/// ".jpg" style extension (with the dot) taken from an image URL.
+pub fn image_extension(url: &str) -> String {
+    url.split(['?', '#'])
+        .next()
+        .and_then(|path| path.rsplit('/').next())
+        .and_then(|name| name.rsplit_once('.'))
+        .map(|(_, extension)| extension)
+        .filter(|extension| {
+            (1..=5).contains(&extension.len())
+                && extension.chars().all(|character| character.is_ascii_alphanumeric())
+        })
+        .map(|extension| format!(".{}", extension.to_ascii_lowercase()))
+        .unwrap_or_else(|| ".jpg".to_string())
 }
 
 pub fn read_response_text(response: ureq::Response) -> Result<String, String> {
@@ -33,18 +61,18 @@ pub fn normalize_whitespace(value: String) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-pub fn absolute_url(value: &str) -> String {
+pub fn absolute_url(base_url: &str, value: &str) -> String {
     let url = value.split_whitespace().next().unwrap_or_default();
     if url.starts_with("http://") || url.starts_with("https://") {
         url.to_string()
     } else if url.starts_with("//") {
         format!("https:{url}")
     } else if url.starts_with('/') {
-        format!("{BASE_URL}{url}")
+        format!("{base_url}{url}")
     } else if url.is_empty() {
         String::new()
     } else {
-        format!("{BASE_URL}/{url}")
+        format!("{base_url}/{url}")
     }
 }
 
@@ -82,5 +110,27 @@ pub fn safe_filename(value: &str) -> String {
         "chapter".to_string()
     } else {
         filename.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{absolute_url, image_extension};
+
+    #[test]
+    fn resolves_urls_against_the_base() {
+        let base = "https://example.com";
+        assert_eq!(absolute_url(base, "/a/b"), "https://example.com/a/b");
+        assert_eq!(absolute_url(base, "//cdn.x/y.png"), "https://cdn.x/y.png");
+        assert_eq!(absolute_url(base, "https://z/y"), "https://z/y");
+        assert_eq!(absolute_url(base, ""), "");
+    }
+
+    #[test]
+    fn extracts_image_extensions() {
+        assert_eq!(image_extension("https://x/a/001.PNG?v=2"), ".png");
+        assert_eq!(image_extension("https://x/a/001.webp"), ".webp");
+        assert_eq!(image_extension("https://x/a/001"), ".jpg");
+        assert_eq!(image_extension("https://x.com/img"), ".jpg");
     }
 }

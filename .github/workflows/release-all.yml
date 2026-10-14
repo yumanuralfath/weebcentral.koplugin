@@ -47,7 +47,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Run native tests
-        working-directory: weebcentral_core
+        working-directory: yumanga_core
         run: cargo test --locked
 
   build:
@@ -239,7 +239,7 @@ jobs:
 
       - name: Cross-compile core (${{ matrix.rust_target }})
         id: build_primary
-        working-directory: weebcentral_core
+        working-directory: yumanga_core
         # With a fallback target, a failure here is not fatal; the next step handles it.
         continue-on-error: ${{ matrix.fallback_target != '' }}
         run: |
@@ -251,7 +251,7 @@ jobs:
       - name: Fallback - static musl build (${{ matrix.fallback_target }})
         id: build_fallback
         if: steps.build_primary.outcome == 'failure'
-        working-directory: weebcentral_core
+        working-directory: yumanga_core
         run: cargo build --locked --release --target "$FALLBACK_TARGET"
 
       - name: Package plugin ZIP
@@ -270,19 +270,19 @@ jobs:
             variant="static musl build"
           fi
 
-          binary="weebcentral_core/target/${target}/release/weebcentral_core"
+          binary="yumanga_core/target/${target}/release/yumanga_core"
           test -x "$binary"
           file "$binary" | tee "$RUNNER_TEMP/binary-info.txt"
           grep -Eiq 'ARM|aarch64' "$RUNNER_TEMP/binary-info.txt"
 
-          stage="$RUNNER_TEMP/package/WeebCentral.koplugin"
+          stage="$RUNNER_TEMP/package/YuManga.koplugin"
           mkdir -p "$stage/bin" dist
-          cp WeebCentral.koplugin/_meta.lua WeebCentral.koplugin/main.lua "$stage/"
-          cp -a WeebCentral.koplugin/lib "$stage/lib"
-          install -m 755 "$binary" "$stage/bin/weebcentral_core_dev"
+          cp YuManga.koplugin/_meta.lua YuManga.koplugin/main.lua "$stage/"
+          cp -a YuManga.koplugin/lib "$stage/lib"
+          install -m 755 "$binary" "$stage/bin/yumanga_core_dev"
 
-          archive="WeebCentralDownloader-${RELEASE_TAG}-${TOOLCHAIN}.zip"
-          (cd "$RUNNER_TEMP/package" && zip -qr "$GITHUB_WORKSPACE/dist/$archive" WeebCentral.koplugin)
+          archive="YuManga-${RELEASE_TAG}-${TOOLCHAIN}.zip"
+          (cd "$RUNNER_TEMP/package" && zip -qr "$GITHUB_WORKSPACE/dist/$archive" YuManga.koplugin)
           (cd dist && sha256sum "$archive" > "$archive.sha256")
           echo "${TOOLCHAIN}: ${variant} (${target})" > "dist/${archive}.info"
 
@@ -316,10 +316,10 @@ jobs:
           {
             echo "Built with [KOReader koxtoolchain ${KOXTOOLCHAIN_VERSION}](https://github.com/koreader/koxtoolchain/releases/tag/${KOXTOOLCHAIN_VERSION})."
             echo
-            echo "Install the ZIP that matches your device's KOReader toolchain, then copy the \`WeebCentral.koplugin\` folder into KOReader's \`plugins\` directory. See the README for the device-to-toolchain table."
+            echo "Install the ZIP that matches your device's KOReader toolchain, then copy the \`YuManga.koplugin\` folder into KOReader's \`plugins\` directory. See the README for the device-to-toolchain table."
             echo
             echo "Toolchains in this release:"
-            for f in WeebCentralDownloader-*.zip.info; do
+            for f in YuManga-*.zip.info; do
               echo "- $(cat "$f")"
             done
           } > ../release-notes.md
@@ -334,9 +334,9 @@ jobs:
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "WeebCentral Downloader $RELEASE_TAG" \
+            --title "YuManga $RELEASE_TAG" \
             --notes-file release-notes.md \
             --generate-notes \
             "${args[@]}" \
-            dist/WeebCentralDownloader-*.zip \
+            dist/YuManga-*.zip \
             dist/SHA256SUMS

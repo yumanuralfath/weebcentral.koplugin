@@ -11,11 +11,11 @@ local ffiUtil = require("ffi/util")
 local _ = require("gettext")
 local T = ffiUtil.template
 
-local Core = require("lib/weebcentral/core")
-local Sources = require("lib/weebcentral/sources")
-local ChapterPicker = require("lib/weebcentral/chapter_picker")
-local DetailView = require("lib/weebcentral/detail_view")
-local ResultsView = require("lib/weebcentral/results_view")
+local Core = require("lib/yumanga/core")
+local Sources = require("lib/yumanga/sources")
+local ChapterPicker = require("lib/yumanga/chapter_picker")
+local DetailView = require("lib/yumanga/detail_view")
+local ResultsView = require("lib/yumanga/results_view")
 local UI = {}
 
 local function runWithProgress(plugin, message, command, progress_total, ...)
@@ -94,9 +94,9 @@ local function decodeCoreResponse(output, succeeded)
 end
 
 function UI.addToMainMenu(plugin, menu_items)
-	menu_items.weeb_central = {
-		text = _("WeebCentral Downloader"),
-		sorting_hint = "tools",
+	menu_items.yumanga = {
+		text = _("YuManga"),
+		sorting_hint = "search",
 		sub_item_table = {
 			{
 				text = _("Search manga"),
@@ -123,11 +123,11 @@ function UI.addToMainMenu(plugin, menu_items)
 				text = _("Show author, status and tags in results"),
 				help_text = _("Loads extra details for each search result. Slower on weak Wi-Fi."),
 				checked_func = function()
-					return G_reader_settings:nilOrTrue("weebcentral_search_details")
+					return G_reader_settings:nilOrTrue("yumanga_search_details")
 				end,
 				callback = function()
-					local enabled = G_reader_settings:nilOrTrue("weebcentral_search_details")
-					G_reader_settings:saveSetting("weebcentral_search_details", not enabled)
+					local enabled = G_reader_settings:nilOrTrue("yumanga_search_details")
+					G_reader_settings:saveSetting("yumanga_search_details", not enabled)
 				end,
 			},
 			{
@@ -142,11 +142,11 @@ function UI.addToMainMenu(plugin, menu_items)
 					return Device:hasWifiToggle()
 				end,
 				checked_func = function()
-					return G_reader_settings:isTrue("weebcentral_turn_off_wifi_after_download")
+					return G_reader_settings:isTrue("yumanga_turn_off_wifi_after_download")
 				end,
 				callback = function()
-					local enabled = not G_reader_settings:isTrue("weebcentral_turn_off_wifi_after_download")
-					G_reader_settings:saveSetting("weebcentral_turn_off_wifi_after_download", enabled)
+					local enabled = not G_reader_settings:isTrue("yumanga_turn_off_wifi_after_download")
+					G_reader_settings:saveSetting("yumanga_turn_off_wifi_after_download", enabled)
 				end,
 			},
 		},
@@ -195,7 +195,7 @@ function UI.search(plugin, keyword)
 		showMessage(_("No sources available. Check that the core executable is installed."))
 		return
 	end
-	local with_details = G_reader_settings:nilOrTrue("weebcentral_search_details") and "1" or "0"
+	local with_details = G_reader_settings:nilOrTrue("yumanga_search_details") and "1" or "0"
 
 	-- One source at a time (never in parallel) to keep memory use low.
 	local combined, failures = {}, {}
@@ -249,20 +249,24 @@ function UI.showSearchResults(plugin, results, show_source)
 		return
 	end
 
-	UIManager:show(ResultsView:new({
-		results = results,
-		show_source = show_source,
-		on_select = function(result)
-			-- The results stay open underneath, so closing the details comes back to them.
-			Trapper:wrap(function()
-				UI.loadMangaInfo(plugin, result)
-			end)
-		end,
-	}), "ui")
+	UIManager:show(
+		ResultsView:new({
+			results = results,
+			show_source = show_source,
+			on_select = function(result)
+				-- The results stay open underneath, so closing the details comes back to them.
+				Trapper:wrap(function()
+					UI.loadMangaInfo(plugin, result)
+				end)
+			end,
+		}),
+		"ui"
+	)
 end
 
 function UI.loadMangaInfo(plugin, series)
-	local output, succeeded = runWithProgress(plugin, _("Loading info..."), "chapters", nil, series.source_id, series.id)
+	local output, succeeded =
+		runWithProgress(plugin, _("Loading info..."), "chapters", nil, series.source_id, series.id)
 	local data, err = decodeCoreResponse(output, succeeded)
 	if not data then
 		if err then
@@ -289,31 +293,37 @@ function UI.showMangaInfo(plugin, series)
 		return
 	end
 
-	UIManager:show(DetailView:new({
-		series = series,
-		on_choose = function()
-			UI.openChapterPicker(plugin, series)
-		end,
-		on_enter_numbers = function()
-			UI.openChapterSelection(plugin, series)
-		end,
-		on_download = function(selection, count)
-			UI.promptVolumeName(plugin, series, selection, count)
-		end,
-	}), "ui")
+	UIManager:show(
+		DetailView:new({
+			series = series,
+			on_choose = function()
+				UI.openChapterPicker(plugin, series)
+			end,
+			on_enter_numbers = function()
+				UI.openChapterSelection(plugin, series)
+			end,
+			on_download = function(selection, count)
+				UI.promptVolumeName(plugin, series, selection, count)
+			end,
+		}),
+		"ui"
+	)
 end
 
 function UI.openChapterPicker(plugin, series)
-	UIManager:show(ChapterPicker:new({
-		series = series,
-		on_download = function(picker, selection, count)
-			UI.promptVolumeName(plugin, series, selection, count, function(done)
-				if done then
-					picker:clearSelection()
-				end
-			end)
-		end,
-	}), "ui")
+	UIManager:show(
+		ChapterPicker:new({
+			series = series,
+			on_download = function(picker, selection, count)
+				UI.promptVolumeName(plugin, series, selection, count, function(done)
+					if done then
+						picker:clearSelection()
+					end
+				end)
+			end,
+		}),
+		"ui"
+	)
 end
 
 -- Asks for an optional volume name, then downloads `selection`.
@@ -441,7 +451,7 @@ function UI.downloadSelection(plugin, series, selection, volume_name)
 		message = message .. "\n" .. _("Existing files skipped: ") .. result.skipped
 	end
 	showMessage(message)
-	if Device:hasWifiToggle() and G_reader_settings:isTrue("weebcentral_turn_off_wifi_after_download") then
+	if Device:hasWifiToggle() and G_reader_settings:isTrue("yumanga_turn_off_wifi_after_download") then
 		UIManager:nextTick(function()
 			NetworkMgr:disableWifi()
 		end)
@@ -481,7 +491,7 @@ function UI.chooseOutputDirectory(plugin)
 		title = _("Choose download folder"),
 		onConfirm = function(path)
 			plugin.output_directory = path
-			G_reader_settings:saveSetting("weebcentral_output_directory", path)
+			G_reader_settings:saveSetting("yumanga_output_directory", path)
 		end,
 	}):chooseDir(plugin.output_directory)
 end

@@ -1,14 +1,13 @@
 {
   "runtime.version": "LuaJIT",
-
+  "workspace.checkThirdParty": false,
   "runtime.path": [
-    "./WeebCentral.koplugin/?.lua",
-    "./WeebCentral.koplugin/?/init.lua",
-    "./WeebCentral.koplugin/koreader/?.lua",
-    "./WeebCentral.koplugin/koreader/?/init.lua",
-    "./WeebCentral.koplugin/koreader/frontend/?.lua",
-    "./WeebCentral.koplugin/koreader/frontend/?/init.lua"
+    "./YuManga.koplugin/?.lua",
+    "./YuManga.koplugin/?/init.lua",
+    "./YuManga.koplugin/koreader/?.lua",
+    "./YuManga.koplugin/koreader/?/init.lua",
+    "./YuManga.koplugin/koreader/frontend/?.lua",
+    "./YuManga.koplugin/koreader/frontend/?/init.lua"
   ],
-  "workspace.library": ["./WeebCentral.koplugin/koreader"],
-  "workspace.ignoreDir": [".git", "target"]
+  "workspace.library": ["./YuManga.koplugin/koreader"]
 }

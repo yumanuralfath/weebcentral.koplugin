@@ -6,7 +6,7 @@ local UIManager = require("ui/uimanager")
 local T = require("ffi/util").template
 local _ = require("gettext")
 
-local Core = require("lib/weebcentral/core")
+local Core = require("lib/yumanga/core")
 
 local Sources = {}
 
@@ -14,7 +14,7 @@ local Sources = {}
 -- results, covers and detail requests. Above this, the user gets a warning.
 Sources.MAX_RECOMMENDED = 3
 
-local SETTING = "weebcentral_selected_sources"
+local SETTING = "yumanga_selected_sources"
 
 -- Sources known to the core executable: { { id = "...", name = "..." }, ... }.
 -- Cached per session; `refresh` asks the core again (cheap, no network).
@@ -60,7 +60,7 @@ function Sources.isSelected(plugin, id)
 	return false
 end
 
--- "WeebCentral, Other" for dialogs.
+-- "SourceA, SourceB" for dialogs.
 function Sources.names(plugin)
 	local names = {}
 	for _i, source in ipairs(Sources.selected(plugin)) do

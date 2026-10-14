@@ -120,61 +120,63 @@ local function decodeCoreResponse(output, succeeded)
 end
 
 function UI.addToMainMenu(plugin, menu_items)
-	menu_items.yumanga = {
-		text = _("YuManga Downloader"),
-		sorting_hint = "tools",
-		sub_item_table = {
-			{
-				text = _("Search manga"),
-				callback = function()
-					UI.openSearchDialog(plugin)
-				end,
+	if not plugin.ui.view then
+		menu_items.yumanga = {
+			text = _("YuManga Downloader"),
+			sorting_hint = "search",
+			sub_item_table = {
+				{
+					text = _("Search manga"),
+					callback = function()
+						UI.openSearchDialog(plugin)
+					end,
+				},
+				{
+					text_func = function()
+						return Sources.summary(plugin)
+					end,
+					help_text = _("Choose which sources are searched. New sources appear here automatically."),
+					sub_item_table_func = function()
+						return Sources.menuItems(plugin)
+					end,
+				},
+				{
+					text = _("Choose download folder"),
+					callback = function()
+						UI.chooseOutputDirectory(plugin)
+					end,
+				},
+				{
+					text = _("Show author, status and tags in results"),
+					help_text = _("Loads extra details for each search result. Slower on weak Wi-Fi."),
+					checked_func = function()
+						return isSearchDetailsEnabled()
+					end,
+					callback = function()
+						setSearchDetailsEnabled(not isSearchDetailsEnabled())
+					end,
+				},
+				{
+					text = _("Clear Cache"),
+					callback = function()
+						UI.clearCoverCache(plugin)
+					end,
+				},
+				{
+					text = _("Turn off Wi-Fi after download"),
+					enabled_func = function()
+						return Device:hasWifiToggle()
+					end,
+					checked_func = function()
+						return isTurnOffWifiEnabled()
+					end,
+					callback = function()
+						setTurnOffWifiEnabled(not isTurnOffWifiEnabled())
+					end,
+				},
 			},
-			{
-				text_func = function()
-					return Sources.summary(plugin)
-				end,
-				help_text = _("Choose which sources are searched. New sources appear here automatically."),
-				sub_item_table_func = function()
-					return Sources.menuItems(plugin)
-				end,
-			},
-			{
-				text = _("Choose download folder"),
-				callback = function()
-					UI.chooseOutputDirectory(plugin)
-				end,
-			},
-			{
-				text = _("Show author, status and tags in results"),
-				help_text = _("Loads extra details for each search result. Slower on weak Wi-Fi."),
-				checked_func = function()
-					return isSearchDetailsEnabled()
-				end,
-				callback = function()
-					setSearchDetailsEnabled(not isSearchDetailsEnabled())
-				end,
-			},
-			{
-				text = _("Clear Cache"),
-				callback = function()
-					UI.clearCoverCache(plugin)
-				end,
-			},
-			{
-				text = _("Turn off Wi-Fi after download"),
-				enabled_func = function()
-					return Device:hasWifiToggle()
-				end,
-				checked_func = function()
-					return isTurnOffWifiEnabled()
-				end,
-				callback = function()
-					setTurnOffWifiEnabled(not isTurnOffWifiEnabled())
-				end,
-			},
-		},
-	}
+		}
+	end
 end
 
 function UI.openSearchDialog(plugin)
@@ -273,20 +275,24 @@ function UI.showSearchResults(plugin, results, show_source)
 		return
 	end
 
-	UIManager:show(ResultsView:new({
-		results = results,
-		show_source = show_source,
-		on_select = function(result)
-			-- The results stay open underneath, so closing the details comes back to them.
-			Trapper:wrap(function()
-				UI.loadMangaInfo(plugin, result)
-			end)
-		end,
-	}), "ui")
+	UIManager:show(
+		ResultsView:new({
+			results = results,
+			show_source = show_source,
+			on_select = function(result)
+				-- The results stay open underneath, so closing the details comes back to them.
+				Trapper:wrap(function()
+					UI.loadMangaInfo(plugin, result)
+				end)
+			end,
+		}),
+		"ui"
+	)
 end
 
 function UI.loadMangaInfo(plugin, series)
-	local output, succeeded = runWithProgress(plugin, _("Loading info..."), "chapters", nil, series.source_id, series.id)
+	local output, succeeded =
+		runWithProgress(plugin, _("Loading info..."), "chapters", nil, series.source_id, series.id)
 	local data, err = decodeCoreResponse(output, succeeded)
 	if not data then
 		if err then
@@ -313,31 +319,37 @@ function UI.showMangaInfo(plugin, series)
 		return
 	end
 
-	UIManager:show(DetailView:new({
-		series = series,
-		on_choose = function()
-			UI.openChapterPicker(plugin, series)
-		end,
-		on_enter_numbers = function()
-			UI.openChapterSelection(plugin, series)
-		end,
-		on_download = function(selection, count)
-			UI.promptVolumeName(plugin, series, selection, count)
-		end,
-	}), "ui")
+	UIManager:show(
+		DetailView:new({
+			series = series,
+			on_choose = function()
+				UI.openChapterPicker(plugin, series)
+			end,
+			on_enter_numbers = function()
+				UI.openChapterSelection(plugin, series)
+			end,
+			on_download = function(selection, count)
+				UI.promptVolumeName(plugin, series, selection, count)
+			end,
+		}),
+		"ui"
+	)
 end
 
 function UI.openChapterPicker(plugin, series)
-	UIManager:show(ChapterPicker:new({
-		series = series,
-		on_download = function(picker, selection, count)
-			UI.promptVolumeName(plugin, series, selection, count, function(done)
-				if done then
-					picker:clearSelection()
-				end
-			end)
-		end,
-	}), "ui")
+	UIManager:show(
+		ChapterPicker:new({
+			series = series,
+			on_download = function(picker, selection, count)
+				UI.promptVolumeName(plugin, series, selection, count, function(done)
+					if done then
+						picker:clearSelection()
+					end
+				end)
+			end,
+		}),
+		"ui"
+	)
 end
 
 -- Asks for an optional volume name, then downloads `selection`.

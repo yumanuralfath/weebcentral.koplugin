@@ -10,7 +10,33 @@ use crate::util::{
 
 const SEARCH_URL: &str = "https://weebcentral.com/search/simple?location=main";
 
-pub fn search(keyword: &str, cover_cache_dir: &str) -> Result<Vec<SearchResult>, String> {
+/// Number of worker threads used to fetch covers and series details.
+const SEARCH_WORKERS: usize = 4;
+
+#[derive(Default)]
+struct SeriesMeta {
+    authors: String,
+    tags: String,
+    manga_type: String,
+    status: String,
+    released: String,
+}
+
+fn parse_series_meta(document: &Html) -> SeriesMeta {
+    SeriesMeta {
+        authors: list_item_value(document, "Author(s)"),
+        tags: list_item_value(document, "Tags(s)"),
+        manga_type: list_item_value(document, "Type"),
+        status: list_item_value(document, "Status"),
+        released: list_item_value(document, "Released"),
+    }
+}
+
+pub fn search(
+    keyword: &str,
+    cover_cache_dir: &str,
+    with_details: bool,
+) -> Result<Vec<SearchResult>, String> {
     let response = ureq::post(SEARCH_URL)
         .set("User-Agent", USER_AGENT)
         .send_form(&[("text", keyword)])
@@ -58,18 +84,54 @@ pub fn search(keyword: &str, cover_cache_dir: &str) -> Result<Vec<SearchResult>,
             })
             .map(absolute_url)
             .unwrap_or_default();
-        let cover_path = cache_cover(id, &cover_url, Path::new(cover_cache_dir));
 
         results.push(SearchResult {
             id: id.to_string(),
             title,
             url: absolute_url(href),
             cover_url,
-            cover_path,
+            cover_path: String::new(),
+            authors: String::new(),
+            tags: String::new(),
+            manga_type: String::new(),
+            status: String::new(),
+            released: String::new(),
         });
     }
 
+    enrich_results(&mut results, cover_cache_dir, with_details);
     Ok(results)
+}
+
+/// Downloads covers and (optionally) series metadata for every result,
+/// spreading the work over a few threads so the search stays responsive.
+/// Failures are never fatal: a result simply keeps empty fields.
+fn enrich_results(results: &mut [SearchResult], cover_cache_dir: &str, with_details: bool) {
+    if results.is_empty() {
+        return;
+    }
+    let chunk_size = results.len().div_ceil(SEARCH_WORKERS).max(1);
+    std::thread::scope(|scope| {
+        for chunk in results.chunks_mut(chunk_size) {
+            scope.spawn(move || {
+                for result in chunk {
+                    result.cover_path =
+                        cache_cover(&result.id, &result.cover_url, Path::new(cover_cache_dir));
+                    if !with_details {
+                        continue;
+                    }
+                    if let Ok(page) = get_text(&result.url) {
+                        let meta = parse_series_meta(&Html::parse_document(&page));
+                        result.authors = meta.authors;
+                        result.tags = meta.tags;
+                        result.manga_type = meta.manga_type;
+                        result.status = meta.status;
+                        result.released = meta.released;
+                    }
+                }
+            });
+        }
+    });
 }
 
 pub fn load_chapters(series_id: &str) -> Result<SeriesChapters, String> {
@@ -103,10 +165,7 @@ pub fn load_chapters(series_id: &str) -> Result<SeriesChapters, String> {
         })
         .map(absolute_url)
         .unwrap_or_default();
-    let authors = list_item_value(&series_document, "Author(s)");
-    let tags = list_item_value(&series_document, "Tags(s)");
-    let manga_type = list_item_value(&series_document, "Type");
-    let status = list_item_value(&series_document, "Status");
+    let meta = parse_series_meta(&series_document);
     let description = list_item_value(&series_document, "Description");
 
     let chapters_url = format!("{series_url}/full-chapter-list");
@@ -155,10 +214,11 @@ pub fn load_chapters(series_id: &str) -> Result<SeriesChapters, String> {
         title,
         url: series_url,
         cover_url,
-        authors,
-        tags,
-        manga_type,
-        status,
+        authors: meta.authors,
+        tags: meta.tags,
+        manga_type: meta.manga_type,
+        status: meta.status,
+        released: meta.released,
         description,
         chapters,
     })
@@ -206,10 +266,6 @@ fn cache_cover(id: &str, cover_url: &str, cache_dir: &Path) -> String {
     if cover_url.is_empty() || cache_dir.as_os_str().is_empty() {
         return String::new();
     }
-    let response = match ureq::get(cover_url).set("User-Agent", USER_AGENT).call() {
-        Ok(response) => response,
-        Err(_) => return String::new(),
-    };
     let extension = cover_url
         .split('?')
         .next()
@@ -222,6 +278,14 @@ fn cache_cover(id: &str, cover_url: &str, cache_dir: &Path) -> String {
         })
         .unwrap_or("img");
     let path = cache_dir.join(format!("{id}.{extension}"));
+    // Reuse a previously downloaded cover instead of fetching it again.
+    if fs::metadata(&path).map(|meta| meta.len() > 0).unwrap_or(false) {
+        return path.to_string_lossy().into_owned();
+    }
+    let response = match ureq::get(cover_url).set("User-Agent", USER_AGENT).call() {
+        Ok(response) => response,
+        Err(_) => return String::new(),
+    };
     let mut reader = response.into_reader();
     let mut output = match fs::File::create(&path) {
         Ok(output) => output,
@@ -232,4 +296,32 @@ fn cache_cover(id: &str, cover_url: &str, cache_dir: &Path) -> String {
         return String::new();
     }
     path.to_string_lossy().into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Html, parse_series_meta};
+
+    #[test]
+    fn parses_series_metadata_labels() {
+        let page = r#"<ul>
+            <li><strong>Author(s): </strong><span><a>Eiichiro Oda</a></span></li>
+            <li><strong>Tags(s): </strong><span><a>Action</a>, <a>Adventure</a></span></li>
+            <li><strong>Type: </strong><a>Manga</a></li>
+            <li><strong>Status: </strong><a>Ongoing</a></li>
+            <li><strong>Released: </strong><span>1997</span></li>
+        </ul>"#;
+        let meta = parse_series_meta(&Html::parse_document(page));
+        assert_eq!(meta.authors, "Eiichiro Oda");
+        assert_eq!(meta.tags, "Action, Adventure");
+        assert_eq!(meta.manga_type, "Manga");
+        assert_eq!(meta.status, "Ongoing");
+        assert_eq!(meta.released, "1997");
+    }
+
+    #[test]
+    fn missing_metadata_is_empty() {
+        let meta = parse_series_meta(&Html::parse_document("<p>nothing</p>"));
+        assert!(meta.authors.is_empty() && meta.released.is_empty());
+    }
 }

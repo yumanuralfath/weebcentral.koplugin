@@ -7,6 +7,11 @@ pub struct SearchResult {
     pub url: String,
     pub cover_url: String,
     pub cover_path: String,
+    pub authors: String,
+    pub tags: String,
+    pub manga_type: String,
+    pub status: String,
+    pub released: String,
 }
 
 #[derive(Serialize, Debug)]
@@ -27,6 +32,7 @@ pub struct SeriesChapters {
     pub tags: String,
     pub manga_type: String,
     pub status: String,
+    pub released: String,
     pub description: String,
     pub chapters: Vec<Chapter>,
 }

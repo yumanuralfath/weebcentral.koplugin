@@ -11,7 +11,9 @@ pub fn run() -> ExitCode {
         Some("search") => match arguments.next() {
             Some(keyword) if !keyword.trim().is_empty() => {
                 let cover_cache_dir = arguments.next().unwrap_or_default();
-                emit_result(weebcentral::search(&keyword, &cover_cache_dir))
+                // Optional third argument: "0" skips the per-series detail requests.
+                let with_details = arguments.next().as_deref() != Some("0");
+                emit_result(weebcentral::search(&keyword, &cover_cache_dir, with_details))
             }
             _ => emit_error("Search keyword is required"),
         },

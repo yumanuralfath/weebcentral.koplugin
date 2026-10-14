@@ -4,8 +4,12 @@ KOReader plugin to search WeebCentral manga, select chapters, and download them 
 
 ## Features
 
-- Search manga on WeebCentral from inside KOReader.
-- List chapters and pick what to download.
+- Search manga on WeebCentral from inside KOReader. Results show the cover, title, author, status, type, year and tags.
+- Manga detail page with a large cover, status/type badges, tag chips, last update date and a scrollable synopsis.
+- Chapter picker with checkboxes: tap to select, long-press to select a range, newest/oldest first, jump between pages.
+- Quick actions: download the latest 5 chapters or the whole series.
+- The extra search details can be switched off in the plugin menu if your connection is slow.
+- Pick chapters by typing numbers too.
 - Chapter selection with comma-separated numbers and ranges, such as `1,3,4` or `1-10`.
 - Output as CBZ files; giving a volume name combines the selection into one CBZ.
 - Prebuilt releases for every [KOReader koxtoolchain](https://github.com/koreader/koxtoolchain) target (Kindle, Kobo, PocketBook, reMarkable, Cervantes, Bookeen).

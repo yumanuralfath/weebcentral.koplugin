@@ -24,7 +24,7 @@ pub fn id_from_href<'a>(href: &'a str, route: &str) -> &'a str {
     href.split_once(route)
         .map(|(_, remainder)| remainder)
         .unwrap_or_default()
-        .split(|character| character == '/' || character == '?')
+        .split(['/', '?'])
         .next()
         .unwrap_or_default()
 }

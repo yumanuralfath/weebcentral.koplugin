@@ -5,7 +5,7 @@ use std::path::Path;
 use zip::write::FileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
-use crate::models::{Chapter, DownloadResult};
+use crate::models::{Chapter, DownloadResult, SeriesChapters};
 use crate::util::{BASE_URL, USER_AGENT, absolute_url, get_text, safe_filename, validate_id};
 use crate::weebcentral::load_chapters;
 
@@ -37,6 +37,7 @@ pub fn download_selection(
 
     let result = if volume_name.trim().is_empty() {
         download_individual_chapters(
+            &series,
             &series.chapters,
             &selected_indices,
             output_dir,
@@ -44,6 +45,7 @@ pub fn download_selection(
         )
     } else {
         download_merged_volume(
+            &series,
             &series.chapters,
             &selected_indices,
             volume_name,
@@ -102,6 +104,7 @@ fn parse_chapter_number(value: &str, chapter_count: usize) -> Result<usize, Stri
 }
 
 fn download_individual_chapters(
+    series_chapter: &SeriesChapters,
     chapters: &[Chapter],
     selected_indices: &[usize],
     output_dir: &Path,
@@ -113,11 +116,12 @@ fn download_individual_chapters(
 
     for chapter_index in selected_indices {
         let chapter = &chapters[*chapter_index];
-        let path = output_dir.join(format!(
-            "{:03}-{}.cbz",
-            chapter_index + 1,
-            safe_filename(&chapter.title)
+
+        let path = output_dir.join(chapter_filename(
+            *chapter_index,
+            &safe_filename(&series_chapter.title),
         ));
+
         if path.is_file() {
             skipped += 1;
             paths.push(path.to_string_lossy().into_owned());
@@ -154,7 +158,7 @@ fn download_individual_chapters(
             let _ = fs::remove_file(&temporary_path);
             return Err(error);
         }
-        fs::rename(&temporary_path, &path).map_err(|error| error.to_string())?;
+        fs::rename(&temporary_path, path).map_err(|error| error.to_string())?;
         paths.push(path.to_string_lossy().into_owned());
     }
     write_progress(
@@ -169,13 +173,18 @@ fn download_individual_chapters(
 }
 
 fn download_merged_volume(
+    series_chapter: &SeriesChapters,
     chapters: &[Chapter],
     selected_indices: &[usize],
     volume_name: &str,
     output_dir: &Path,
     progress_path: &Path,
 ) -> Result<DownloadResult, String> {
-    let path = output_dir.join(format!("{}.cbz", safe_filename(volume_name)));
+    let path = output_dir.join(format!(
+        "{} - {}.cbz",
+        series_chapter.title,
+        safe_filename(volume_name)
+    ));
     if path.is_file() {
         return Ok(DownloadResult {
             paths: vec![path.to_string_lossy().into_owned()],
@@ -293,6 +302,7 @@ fn prepare_chapters<'a>(
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn append_chapter_images(
     chapter: &Chapter,
     pages: &ChapterPages,
@@ -387,9 +397,22 @@ fn write_progress(path: &Path, stage: &str, current: usize, total: usize, title:
     let _ = fs::write(path, format!("{stage}|{current}|{total}|{sanitized_title}"));
 }
 
+fn chapter_filename(chapter_index: usize, manga_name: &str) -> String {
+    format!("{} - {}.cbz", chapter_index + 1, safe_filename(manga_name))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::parse_selection;
+    use super::{chapter_filename, parse_selection};
+
+    #[test]
+    fn generates_manga_filename_without_zero_padding() {
+        assert_eq!(chapter_filename(0, "One Piece"), "1 - One Piece.cbz");
+
+        assert_eq!(chapter_filename(1, "One Piece"), "2 - One Piece.cbz");
+
+        assert_eq!(chapter_filename(9, "One Piece"), "10 - One Piece.cbz");
+    }
 
     #[test]
     fn parses_single_and_discrete_chapters() {

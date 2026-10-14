@@ -9,7 +9,7 @@ pub struct SearchResult {
     pub cover_path: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct Chapter {
     pub id: String,
     pub title: String,
@@ -17,7 +17,7 @@ pub struct Chapter {
     pub published_at: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct SeriesChapters {
     pub id: String,
     pub title: String,

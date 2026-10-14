@@ -216,7 +216,7 @@ function UI.showSearchResults(plugin, results)
 end
 
 function UI.loadMangaInfo(plugin, series)
-	local output, succeeded = runWithProgress(plugin, _("Loading chapters..."), "chapters", nil, series.id)
+	local output, succeeded = runWithProgress(plugin, _("Loading info..."), "chapters", nil, series.id)
 	local data, err = decodeCoreResponse(output, succeeded)
 	if not data then
 		if err then

@@ -279,6 +279,7 @@ jobs:
           mkdir -p "$stage/bin" dist
           cp YuManga.koplugin/_meta.lua YuManga.koplugin/main.lua "$stage/"
           cp -a YuManga.koplugin/lib "$stage/lib"
+          cp -a YuManga.koplugin/extensions "$stage/extensions"
           install -m 755 "$binary" "$stage/bin/yumanga_core_dev"
 
           archive="YuManga-${RELEASE_TAG}-${TOOLCHAIN}.zip"

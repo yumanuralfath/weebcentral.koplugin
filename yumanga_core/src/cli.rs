@@ -24,7 +24,7 @@ pub fn run() -> ExitCode {
                 id: source.id().to_string(),
                 name: source.name().to_string(),
             })
-            .collect::<Vec<_>>())),
+            .collect::<Vec<SourceInfo>>())),
         Some("search") => with_source(argument(1), |source| match argument(2) {
             Some(keyword) if !keyword.trim().is_empty() => source.search(
                 keyword,
@@ -71,7 +71,7 @@ fn with_source<T: Serialize>(
         return emit_error("Source ID is required");
     };
     match sources::find(source_id) {
-        Some(source) => emit_result(action(source.as_ref())),
+        Some(source) => emit_result(action(source)),
         None => emit_error(format!("Unknown source: {source_id}")),
     }
 }

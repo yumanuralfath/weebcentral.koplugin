@@ -5,13 +5,23 @@ edition = "2024"
 
 [profile.release]
 opt-level = "z"
-lto = true
+lto = "fat"
 codegen-units = 1
 strip = true
 panic = "abort"
 
 [dependencies]
 regex = "1"
+rhai = { version = "1.22", default-features = false, features = [
+    "std",
+    "sync",
+    "only_i32",
+    "no_float",
+    "no_module",
+    "no_time",
+    "no_custom_syntax",
+    "no_closure",
+] }
 scraper = "0.22"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

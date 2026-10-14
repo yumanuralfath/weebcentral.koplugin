@@ -2,12 +2,12 @@
 
 KOReader plugin to search manga from multiple sources, select chapters, and download them as CBZ files. The KOReader interface is written in Lua; the downloader core is written in Rust.
 
-Built-in sources currently include **WeebCentral**; more can be added to the Rust core without changing the Lua UI.
+Built-in sources currently include **WeebCentral** (as a Rhai extension). More sites can be added by dropping a `.rhai` script into the plugin — no core rebuild required, and the Lua UI picks them up automatically.
 
 ## Features
 
 - Search manga across one or more selected sources from inside KOReader. Results show the cover, title, author, status, type, year and tags.
-- Choose which sources to use from the plugin menu. New sources registered in the core appear automatically.
+- Choose which sources to use from the plugin menu. New `.rhai` extensions appear automatically.
 - Manga detail page with a large cover, status/type badges, tag chips, last update date and a scrollable synopsis.
 - Chapter picker with checkboxes: tap to select, long-press to select a range, newest/oldest first, jump between pages.
 - Quick actions: download the latest 5 chapters or the whole series.
@@ -146,6 +146,8 @@ The linker for `armv7-unknown-linux-gnueabihf` is also set in `yumanga_core/.car
 YuManga.koplugin/
 ├── _meta.lua
 ├── main.lua
+├── extensions/
+│   └── weebcentral.rhai
 ├── lib/yumanga/
 │   ├── core.lua
 │   └── ui.lua
@@ -155,10 +157,29 @@ YuManga.koplugin/
 
 The Rust core supports `sources`, `search`, `chapters`, and `download` commands. Its JSON output is consumed by the Lua plugin.
 
+## Add a manga source (no recompile)
+
+Sources are Rhai scripts in `YuManga.koplugin/extensions/`. The core loads every `*.rhai` next to the plugin binary at runtime.
+
+Each script must define:
+
+| Function | Returns |
+| -------- | ------- |
+| `id()` | Stable id used on the CLI (e.g. `"weebcentral"`) |
+| `name()` | Label shown in the UI |
+| `search(keyword, cover_cache_dir, with_details)` | Array of result maps |
+| `series(series_id)` | Series map; `chapters` oldest → newest |
+| `pages(chapter_id, chapter_url)` | Array of `{ url, referer }` |
+
+Host helpers available to scripts: `http_get`, `http_post_form`, `select_outer`, `select_attr`, `select_text`, `abs_url`, `id_from_href`, `normalize_ws`, `regex_captures`, `regex_find_ints`, `cache_cover`, `derive_page_urls`, `ends_with_colon_label`.
+
+Copy a new `.rhai` into `extensions/` on the device (or into this repo before packaging), restart KOReader, and the source appears under **Tools > YuManga**. Only changes to the host API itself need a new `yumanga_core` build.
+
 ## Repository layout
 
 | Path                 | Purpose                                          |
 | -------------------- | ------------------------------------------------ |
 | `YuManga.koplugin/`  | KOReader plugin (Lua UI and bundled core binary) |
-| `yumanga_core/`      | Rust downloader core (multi-source)              |
+| `yumanga_core/`      | Rust downloader core (Rhai host + download/CBZ)  |
+| `YuManga.koplugin/extensions/` | Per-site Rhai scripts (no recompile to add) |
 | `.github/workflows/` | Release workflow for all koxtoolchain targets    |

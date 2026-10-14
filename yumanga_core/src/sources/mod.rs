@@ -1,15 +1,13 @@
 //! Manga sources. Every website the plugin can read from implements [`Source`].
 //!
-//! To add a source:
-//!   1. create `sources/<name>.rs` with a type that implements `Source`
-//!   2. add `pub mod <name>;` below
-//!   3. return it from `all()`
-//!      Nothing else (CLI, downloader, Lua) needs to change.
+//! Built-in sites ship as Rhai scripts under `YuManga.koplugin/extensions/`.
+//! Drop another `*.rhai` there to add a source without rebuilding the core.
 
-pub mod weebcentral;
+mod rhai_host;
 
 use crate::models::{Chapter, PageImage, SearchResult, SeriesChapters};
 use crate::util;
+use std::sync::OnceLock;
 
 pub struct SearchOptions<'a> {
     /// Directory where cover images are cached ("" disables covers).
@@ -18,12 +16,12 @@ pub struct SearchOptions<'a> {
     pub with_details: bool,
 }
 
-pub trait Source: Sync {
+pub trait Source: Send + Sync {
     /// Stable identifier used on the command line, e.g. "weebcentral".
-    fn id(&self) -> &'static str;
+    fn id(&self) -> &str;
 
     /// Human readable name shown in the UI.
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &str;
 
     fn search(&self, keyword: &str, options: &SearchOptions) -> Result<Vec<SearchResult>, String>;
 
@@ -42,11 +40,21 @@ pub trait Source: Sync {
     }
 }
 
-/// All built-in sources. The first one is the default.
-pub fn all() -> Vec<Box<dyn Source>> {
-    vec![Box::new(weebcentral::WeebCentral)]
+fn loaded_sources() -> &'static [Box<dyn Source>] {
+    static SOURCES: OnceLock<Vec<Box<dyn Source>>> = OnceLock::new();
+    SOURCES
+        .get_or_init(|| rhai_host::load_all(&rhai_host::shared_engine()))
+        .as_slice()
 }
 
-pub fn find(id: &str) -> Option<Box<dyn Source>> {
-    all().into_iter().find(|source| source.id() == id)
+/// All discovered extension sources. The first one is the default.
+pub fn all() -> &'static [Box<dyn Source>] {
+    loaded_sources()
+}
+
+pub fn find(id: &str) -> Option<&'static dyn Source> {
+    loaded_sources()
+        .iter()
+        .find(|source| source.id() == id)
+        .map(|source| source.as_ref())
 }

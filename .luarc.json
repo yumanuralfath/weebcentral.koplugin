@@ -2,13 +2,13 @@
   "runtime.version": "LuaJIT",
 
   "runtime.path": [
-    "./WeebCentral.koplugin/?.lua",
-    "./WeebCentral.koplugin/?/init.lua",
-    "./WeebCentral.koplugin/koreader/?.lua",
-    "./WeebCentral.koplugin/koreader/?/init.lua",
-    "./WeebCentral.koplugin/koreader/frontend/?.lua",
-    "./WeebCentral.koplugin/koreader/frontend/?/init.lua"
+    "./yumanga.koplugin/?.lua",
+    "./yumanga.koplugin/?/init.lua",
+    "./yumanga.koplugin/koreader/?.lua",
+    "./yumanga.koplugin/koreader/?/init.lua",
+    "./yumanga.koplugin/koreader/frontend/?.lua",
+    "./yumanga.koplugin/koreader/frontend/?/init.lua"
   ],
-  "workspace.library": ["./WeebCentral.koplugin/koreader"],
+  "workspace.library": ["./yumanga.koplugin/koreader"],
   "workspace.ignoreDir": [".git", "target"]
 }

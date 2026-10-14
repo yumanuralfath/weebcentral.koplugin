@@ -1,10 +1,11 @@
-# WeebCentral Downloader for KOReader
+# YuManga Downloader for KOReader
 
-KOReader plugin to search WeebCentral manga, select chapters, and download them as CBZ files. The KOReader interface is written in Lua; the downloader core is written in Rust.
+KOReader plugin to search manga from multiple sources (including WeebCentral), select chapters, and download them as CBZ files. The KOReader interface is written in Lua; the downloader core is written in Rust.
 
 ## Features
 
-- Search manga on WeebCentral from inside KOReader. Results show the cover, title, author, status, type, year and tags.
+- Multi-source support: search manga across multiple sources (such as WeebCentral) from inside KOReader. Results show the cover, title, author, status, type, year and tags.
+- Source switcher: easily select and configure which manga sources are active directly from the KOReader menu.
 - Manga detail page with a large cover, status/type badges, tag chips, last update date and a scrollable synopsis.
 - Chapter picker with checkboxes: tap to select, long-press to select a range, newest/oldest first, jump between pages.
 - Quick actions: download the latest 5 chapters or the whole series.
@@ -18,17 +19,17 @@ KOReader plugin to search WeebCentral manga, select chapters, and download them 
 
 1. Open the repository's **Releases** page.
 2. Download the ZIP that matches your device (see [Choose your toolchain](#choose-your-toolchain)):
-   `WeebCentralDownloader-<version>-<toolchain>.zip`
+   `YuMangaDownloader-<version>-<toolchain>.zip`
 3. Optionally verify it against `SHA256SUMS`:
 
    ```
    sha256sum --check --ignore-missing SHA256SUMS
    ```
 
-4. Extract the ZIP. It contains a `WeebCentral.koplugin` directory.
+4. Extract the ZIP. It contains a `yumanga.koplugin` directory.
 5. Copy that directory into KOReader's `plugins` directory on your device. On a typical Kindle this is `/mnt/us/koreader/plugins/`.
 6. Restart KOReader.
-7. Open **Tools > WeebCentral Downloader**.
+7. Open **Tools > YuManga Downloader**.
 
 Each ZIP contains only the plugin files and the executable built for that toolchain. The bundled KOReader source tree in this repository is for development and is not included in the install package.
 
@@ -78,7 +79,7 @@ What the workflow does ([`.github/workflows/release-all.yml`](.github/workflows/
 1. Validates the tag and checks that the release does not already exist.
 2. Runs the Rust tests once.
 3. Builds the core in parallel for all 14 toolchains. For each one it downloads `<toolchain>.tar.zst` from [koxtoolchain 2026.08](https://github.com/koreader/koxtoolchain/releases/tag/2026.08), verifies its published SHA-256 before extraction, selects the matching Rust target, and cross-compiles (with the `getauxval` shim and musl fallback for old sysroots, see above).
-4. Packages one `WeebCentralDownloader-<version>-<toolchain>.zip` per toolchain, each with a `.sha256` file.
+4. Packages one `YuMangaDownloader-<version>-<toolchain>.zip` per toolchain, each with a `.sha256` file.
 5. Creates a single GitHub Release with every ZIP plus a combined `SHA256SUMS`.
 
 The workflow is manual-only (`workflow_dispatch`). It does not build on pushes or pull requests. Each release tag must be new.
@@ -98,10 +99,10 @@ When koxtoolchain publishes a new release:
 From the repository root:
 
 ```
-cargo test --manifest-path weebcentral_core/Cargo.toml
-cargo build --manifest-path weebcentral_core/Cargo.toml
-cp weebcentral_core/target/debug/weebcentral_core \
-  WeebCentral.koplugin/bin/weebcentral_core_dev
+cargo test --manifest-path yumanga_core/Cargo.toml
+cargo build --manifest-path yumanga_core/Cargo.toml
+cp yumanga_core/target/debug/yumanga_core \
+  yumanga.koplugin/bin/yumanga_core_dev
 ```
 
 This native executable is for running on the build computer, not for installing on a device.
@@ -114,15 +115,15 @@ Example for `kindlehf`. Download the archive from the [koxtoolchain release](htt
 rustup target add armv7-unknown-linux-gnueabihf
 export PATH="$HOME/x-tools/arm-kindlehf-linux-gnueabihf/bin:$PATH"
 
-cd weebcentral_core
+cd yumanga_core
 CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-kindlehf-linux-gnueabihf-gcc \
 CC_armv7_unknown_linux_gnueabihf=arm-kindlehf-linux-gnueabihf-gcc \
 AR_armv7_unknown_linux_gnueabihf=arm-kindlehf-linux-gnueabihf-ar \
 cargo build --release --target armv7-unknown-linux-gnueabihf
 
 install -D -m 755 \
-  target/armv7-unknown-linux-gnueabihf/release/weebcentral_core \
-  ../WeebCentral.koplugin/bin/weebcentral_core_dev
+  target/armv7-unknown-linux-gnueabihf/release/yumanga_core \
+  ../yumanga.koplugin/bin/yumanga_core_dev
 ```
 
 For another toolchain, change these together (taking values from the table above):
@@ -133,27 +134,27 @@ For another toolchain, change these together (taking values from the table above
 4. The target-specific variables, with the target's dashes turned into underscores:
    `CARGO_TARGET_<TARGET_UPPERCASE>_LINKER`, `CC_<target>` and `AR_<target>`.
 
-The linker for `armv7-unknown-linux-gnueabihf` is also set in `weebcentral_core/.cargo/config.toml`. The explicit `CC` and `AR` variables are needed by native Rust dependencies such as `ring` when they compile C or assembly code for the target.
+The linker for `armv7-unknown-linux-gnueabihf` is also set in `yumanga_core/.cargo/config.toml`. The explicit `CC` and `AR` variables are needed by native Rust dependencies such as `ring` when they compile C or assembly code for the target.
 
 ## Plugin layout
 
 ```
-WeebCentral.koplugin/
+yumanga.koplugin/
 ├── _meta.lua
 ├── main.lua
-├── lib/weebcentral/
+├── lib/yumanga/
 │   ├── core.lua
 │   └── ui.lua
 └── bin/
-    └── weebcentral_core_dev
+    └── yumanga_core_dev
 ```
 
-The Rust core supports `search`, `chapters`, and `download` commands. Its JSON output is consumed by the Lua plugin.
+The Rust core supports `sources`, `search`, `chapters`, and `download` commands. Its JSON output is consumed by the Lua plugin.
 
 ## Repository layout
 
-| Path                    | Purpose                                          |
-| ----------------------- | ------------------------------------------------ |
-| `WeebCentral.koplugin/` | KOReader plugin (Lua UI and bundled core binary) |
-| `weebcentral_core/`     | Rust downloader core                             |
-| `.github/workflows/`    | Release workflow for all koxtoolchain targets    |
+| Path                | Purpose                                          |
+| ------------------- | ------------------------------------------------ |
+| `yumanga.koplugin/` | KOReader plugin (Lua UI and bundled core binary) |
+| `yumanga_core/`     | Rust downloader core                             |
+| `.github/workflows/`| Release workflow for all koxtoolchain targets    |

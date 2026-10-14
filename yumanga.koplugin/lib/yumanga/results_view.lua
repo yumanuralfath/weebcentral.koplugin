@@ -15,9 +15,9 @@ local T = require("ffi/util").template
 local _ = require("gettext")
 local Screen = Device.screen
 
-local Format = require("lib/weebcentral/format")
-local PagedList = require("lib/weebcentral/paged_list")
-local Widgets = require("lib/weebcentral/widgets")
+local Format = require("lib/yumanga/format")
+local PagedList = require("lib/yumanga/paged_list")
+local Widgets = require("lib/yumanga/widgets")
 
 local ResultsView = PagedList:extend({
 	results = nil,

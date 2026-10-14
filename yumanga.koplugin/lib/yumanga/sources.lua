@@ -6,7 +6,7 @@ local UIManager = require("ui/uimanager")
 local T = require("ffi/util").template
 local _ = require("gettext")
 
-local Core = require("lib/weebcentral/core")
+local Core = require("lib/yumanga/core")
 
 local Sources = {}
 
@@ -14,7 +14,7 @@ local Sources = {}
 -- results, covers and detail requests. Above this, the user gets a warning.
 Sources.MAX_RECOMMENDED = 3
 
-local SETTING = "weebcentral_selected_sources"
+local SETTING = "yumanga_selected_sources"
 
 -- Sources known to the core executable: { { id = "...", name = "..." }, ... }.
 -- Cached per session; `refresh` asks the core again (cheap, no network).
@@ -36,7 +36,10 @@ end
 function Sources.selected(plugin)
 	local available = Sources.available(plugin)
 	local wanted = {}
-	for _i, id in ipairs(G_reader_settings:readSetting(SETTING) or {}) do
+	local saved = G_reader_settings:readSetting(SETTING)
+		or G_reader_settings:readSetting("weebcentral_selected_sources")
+		or {}
+	for _i, id in ipairs(saved) do
 		wanted[id] = true
 	end
 	local picked = {}

@@ -19,8 +19,8 @@ local T = require("ffi/util").template
 local _ = require("gettext")
 local Screen = Device.screen
 
-local Format = require("lib/weebcentral/format")
-local Widgets = require("lib/weebcentral/widgets")
+local Format = require("lib/yumanga/format")
+local Widgets = require("lib/yumanga/widgets")
 
 local DetailView = InputContainer:extend({
 	covers_fullscreen = true,

@@ -14,6 +14,7 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local InputDialog = require("ui/widget/inputdialog")
 local TitleBar = require("ui/widget/titlebar")
 local UIManager = require("ui/uimanager")
+local TopContainer = require("ui/widget/container/topcontainer")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local T = require("ffi/util").template
 local _ = require("gettext")
@@ -152,28 +153,50 @@ function PagedList:rebuild()
 		table.insert(rows, self:buildRow(self.items[index], index))
 	end
 
+	-- local body = VerticalGroup:new({ align = "left", title_bar })
+	-- table.insert(
+	-- 	body,
+	-- 	FrameContainer:new({
+	-- 		bordersize = 0,
+	-- 		padding = 0,
+	-- 		margin = 0,
+	-- 		width = self.width,
+	-- 		height = list_height,
+	-- 		rows,
+	-- 	})
+	-- )
+
 	local body = VerticalGroup:new({ align = "left", title_bar })
+	-- Fixed-height slot: the action bar and page nav stay at the bottom even
+	-- when the last page has fewer rows than the others.
 	table.insert(
 		body,
-		FrameContainer:new({
-			bordersize = 0,
-			padding = 0,
-			margin = 0,
-			width = self.width,
-			height = list_height,
+		TopContainer:new({
+			dimen = Geom:new({ w = self.width, h = list_height }),
 			rows,
 		})
 	)
+
 	if action_bar then
 		table.insert(body, action_bar)
 	end
 	table.insert(body, self:buildPageNav(nav_height))
+
+	-- self[1] = FrameContainer:new({
+	-- 	background = Blitbuffer.COLOR_WHITE,
+	-- 	bordersize = 0,
+	-- 	padding = 0,
+	-- 	margin = 0,
+	-- 	body,
+	-- })
 
 	self[1] = FrameContainer:new({
 		background = Blitbuffer.COLOR_WHITE,
 		bordersize = 0,
 		padding = 0,
 		margin = 0,
+		width = self.width,
+		height = self.height,
 		body,
 	})
 end

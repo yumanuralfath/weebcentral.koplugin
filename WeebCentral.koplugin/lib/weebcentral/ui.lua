@@ -8,6 +8,7 @@ local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
 local NetworkMgr = require("ui/network/manager")
 local ffiUtil = require("ffi/util")
+local Format = require("lib/weebcentral/format")
 local _ = require("gettext")
 
 local Core = require("lib/weebcentral/core")
@@ -178,16 +179,15 @@ function UI.openSearchDialog(plugin)
 end
 
 function UI.search(plugin, keyword)
-	local output, succeeded =
-		runWithProgress(
-			plugin,
-			_("Searching..."),
-			"search",
-			nil,
-			keyword,
-			plugin.cover_cache_directory,
-			G_reader_settings:nilOrTrue("weebcentral_search_details") and "1" or "0"
-		)
+	local output, succeeded = runWithProgress(
+		plugin,
+		_("Searching..."),
+		"search",
+		nil,
+		keyword,
+		plugin.cover_cache_directory,
+		G_reader_settings:nilOrTrue("weebcentral_search_details") and "1" or "0"
+	)
 	local results, err = decodeCoreResponse(output, succeeded)
 	if not results then
 		if err then
@@ -204,15 +204,18 @@ function UI.showSearchResults(plugin, results)
 		return
 	end
 
-	UIManager:show(ResultsView:new({
-		results = results,
-		on_select = function(result)
-			-- The results stay open underneath, so closing the details comes back to them.
-			Trapper:wrap(function()
-				UI.loadMangaInfo(plugin, result)
-			end)
-		end,
-	}), "ui")
+	UIManager:show(
+		ResultsView:new({
+			results = results,
+			on_select = function(result)
+				-- The results stay open underneath, so closing the details comes back to them.
+				Trapper:wrap(function()
+					UI.loadMangaInfo(plugin, result)
+				end)
+			end,
+		}),
+		"ui"
+	)
 end
 
 function UI.loadMangaInfo(plugin, series)
@@ -241,31 +244,40 @@ function UI.showMangaInfo(plugin, series)
 		return
 	end
 
-	UIManager:show(DetailView:new({
-		series = series,
-		on_choose = function()
-			UI.openChapterPicker(plugin, series)
-		end,
-		on_enter_numbers = function()
-			UI.openChapterSelection(plugin, series)
-		end,
-		on_download = function(selection, count)
-			UI.promptVolumeName(plugin, series, selection, count)
-		end,
-	}), "ui")
+	UIManager:show(
+		DetailView:new({
+			series = series,
+			on_choose = function()
+				UI.openChapterPicker(plugin, series)
+			end,
+			on_enter_numbers = function()
+				UI.openChapterSelection(plugin, series)
+			end,
+			on_quick = function()
+				UI.askQuickRange(plugin, series, mode)
+			end,
+			on_download = function(selection, count)
+				UI.promptVolumeName(plugin, series, selection, count)
+			end,
+		}),
+		"ui"
+	)
 end
 
 function UI.openChapterPicker(plugin, series)
-	UIManager:show(ChapterPicker:new({
-		series = series,
-		on_download = function(picker, selection, count)
-			UI.promptVolumeName(plugin, series, selection, count, function(done)
-				if done then
-					picker:clearSelection()
-				end
-			end)
-		end,
-	}), "ui")
+	UIManager:show(
+		ChapterPicker:new({
+			series = series,
+			on_download = function(picker, selection, count)
+				UI.promptVolumeName(plugin, series, selection, count, function(done)
+					if done then
+						picker:clearSelection()
+					end
+				end)
+			end,
+		}),
+		"ui"
+	)
 end
 
 -- Asks for an optional volume name, then downloads `selection`.
@@ -302,6 +314,54 @@ function UI.promptVolumeName(plugin, series, selection, count, on_finished)
 								on_finished(succeeded == true)
 							end
 						end)
+					end,
+				},
+			},
+		},
+	})
+	UIManager:show(dialog)
+	dialog:onShowKeyboard()
+end
+
+-- Asks how many chapters, then downloads the first or the latest N.
+-- `mode` is "first" (oldest chapters) or "latest" (newest chapters).
+function UI.askQuickRange(plugin, series, mode)
+	local total = #series.chapters
+	local builder = mode == "first" and Format.first or Format.latest
+	local dialog
+	dialog = InputDialog:new({
+		title = mode == "first" and _("Download first chapters") or _("Download latest chapters"),
+		input = tostring(plugin.last_quick_count or 5),
+		input_type = "number",
+		input_hint = string.format(_("1 - %d"), total),
+		description = mode == "first" and string.format(_("How many of the oldest chapters? (max %d)"), total)
+			or string.format(_("How many of the newest chapters? (max %d)"), total),
+		buttons = {
+			{
+				{
+					text = _("Cancel"),
+					id = "close",
+					callback = function()
+						UIManager:close(dialog)
+					end,
+				},
+				{
+					text = _("Next"),
+					is_enter_default = true,
+					callback = function()
+						local amount = tonumber(dialog:getInputText())
+						if not amount or amount < 1 then
+							showMessage(_("Enter a number of chapters (1 or more)."))
+							return
+						end
+						amount = math.min(math.floor(amount), total)
+						plugin.last_quick_count = amount
+						local selection, count = builder(total, amount)
+						if not selection then
+							return
+						end
+						UIManager:close(dialog)
+						UI.promptVolumeName(plugin, series, selection, count)
 					end,
 				},
 			},

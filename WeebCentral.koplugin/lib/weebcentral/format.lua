@@ -124,4 +124,16 @@ function Format.latest(total, amount)
 	return first .. "-" .. total, count
 end
 
+-- Selection string for the oldest `amount` chapters.
+function Format.first(total, amount)
+	if total < 1 then
+		return nil, 0
+	end
+	local count = math.min(amount, total)
+	if count == 1 then
+		return "1", 1
+	end
+	return "1-" .. count, count
+end
+
 return Format

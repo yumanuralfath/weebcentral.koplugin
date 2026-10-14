@@ -29,6 +29,7 @@ local DetailView = InputContainer:extend({
 	on_enter_numbers = nil, -- type chapter numbers manually
 	on_download = nil, -- function(selection, count): quick downloads
 	on_close = nil,
+	on_quick = nil, -- open the First/Latest dialog
 })
 
 function DetailView:init()
@@ -70,7 +71,8 @@ function DetailView:build()
 	})
 
 	-- Header: cover on the left, facts on the right.
-	local cover_h = math.min(math.floor(math.min(self.width, self.height) * 0.30 * 1.45), math.floor(self.height * 0.30))
+	local cover_h =
+		math.min(math.floor(math.min(self.width, self.height) * 0.30 * 1.45), math.floor(self.height * 0.30))
 	local cover = Widgets.cover(series.cover_path, math.floor(cover_h * 0.75), cover_h)
 	local text_w = inner_w - cover:getSize().w - pad
 
@@ -153,7 +155,7 @@ function DetailView:build()
 	end
 
 	-- Actions.
-	local latest_selection, latest_count = Format.latest(total, 5)
+	-- local latest_selection, latest_count = Format.latest(total, 5)
 	local actions = ButtonTable:new({
 		width = inner_w,
 		show_parent = self,
@@ -178,14 +180,25 @@ function DetailView:build()
 			},
 			{
 				{
-					text = latest_count > 0 and T(_("Latest %1"), latest_count) or _("Latest"),
-					enabled = latest_count > 0,
+					text = _("First…"),
+					enabled = total > 0,
 					callback = function()
-						if self.on_download then
-							self.on_download(latest_selection, latest_count)
+						if self.on_quick then
+							self.on_quick("first")
 						end
 					end,
 				},
+				{
+					text = _("Latest…"),
+					enabled = total > 0,
+					callback = function()
+						if self.on_quick then
+							self.on_quick("latest")
+						end
+					end,
+				},
+			},
+			{
 				{
 					text = T(_("Download all (%1)"), total),
 					enabled = total > 0,

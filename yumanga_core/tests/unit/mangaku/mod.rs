@@ -1,0 +1,3 @@
+mod builds_mangaku_series_chapter_urls;
+mod maps_search_results_to_mangaku_domain;
+mod preserves_mangaku_reader_image_order;

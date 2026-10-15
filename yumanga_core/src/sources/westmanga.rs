@@ -35,8 +35,8 @@ impl Source for WestManga {
     }
 }
 
-fn abs(value: &str) -> String {
-    absolute_url(BASE_URL, value)
+fn abs(base_url: &str, value: &str) -> String {
+    absolute_url(base_url, value)
 }
 
 pub fn search(
@@ -44,7 +44,16 @@ pub fn search(
     cover_cache_dir: &str,
     with_details: bool,
 ) -> Result<Vec<SearchResult>, String> {
-    let response = ureq::get(&format!("{BASE_URL}/manga"))
+    search_for_site(BASE_URL, keyword, cover_cache_dir, with_details)
+}
+
+pub(crate) fn search_for_site(
+    base_url: &str,
+    keyword: &str,
+    cover_cache_dir: &str,
+    with_details: bool,
+) -> Result<Vec<SearchResult>, String> {
+    let response = ureq::get(&format!("{base_url}/manga"))
         .query("search", keyword)
         .set("User-Agent", USER_AGENT)
         .call()
@@ -55,8 +64,8 @@ pub fn search(
         .get("mangas")
         .and_then(|mangas| mangas.get("data"))
         .and_then(Value::as_array)
-        .ok_or_else(|| "WestManga search results were missing".to_string())?;
-    let mut results = parse_search_results(data, with_details);
+        .ok_or_else(|| "Manga search results were missing".to_string())?;
+    let mut results = parse_search_results_for_site(base_url, data, with_details);
     if !cover_cache_dir.is_empty() {
         fs::create_dir_all(cover_cache_dir).map_err(|error| error.to_string())?;
     }
@@ -66,7 +75,11 @@ pub fn search(
     Ok(results)
 }
 
-fn parse_search_results(mangas: &[Value], with_details: bool) -> Vec<SearchResult> {
+pub(crate) fn parse_search_results_for_site(
+    base_url: &str,
+    mangas: &[Value],
+    with_details: bool,
+) -> Vec<SearchResult> {
     mangas
         .iter()
         .filter_map(|manga| {
@@ -75,7 +88,7 @@ fn parse_search_results(mangas: &[Value], with_details: bool) -> Vec<SearchResul
             let cover_url = manga
                 .get("poster")
                 .and_then(Value::as_str)
-                .map(abs)
+                .map(|poster| abs(base_url, poster))
                 .unwrap_or_default();
             let (authors, tags, manga_type, status, released) = if with_details {
                 metadata(manga)
@@ -85,7 +98,7 @@ fn parse_search_results(mangas: &[Value], with_details: bool) -> Vec<SearchResul
             Some(SearchResult {
                 id: id.to_string(),
                 title: title.to_string(),
-                url: format!("{BASE_URL}/manga/{id}"),
+                url: format!("{base_url}/manga/{id}"),
                 cover_url,
                 cover_path: String::new(),
                 authors,
@@ -129,22 +142,33 @@ fn metadata(manga: &Value) -> (String, String, String, String, String) {
 }
 
 pub fn load_series(series_id: &str) -> Result<SeriesChapters, String> {
-    validate_id(series_id)?;
-    let html = get_text(&format!("{BASE_URL}/manga/{series_id}"))?;
-    let props = inertia_props(&html)?;
-    parse_series(series_id, &props)
+    load_series_for_site(BASE_URL, series_id)
 }
 
-fn parse_series(series_id: &str, props: &Value) -> Result<SeriesChapters, String> {
+pub(crate) fn load_series_for_site(
+    base_url: &str,
+    series_id: &str,
+) -> Result<SeriesChapters, String> {
+    validate_id(series_id)?;
+    let html = get_text(&format!("{base_url}/manga/{series_id}"))?;
+    let props = inertia_props(&html)?;
+    parse_series_for_site(base_url, series_id, &props)
+}
+
+pub(crate) fn parse_series_for_site(
+    base_url: &str,
+    series_id: &str,
+    props: &Value,
+) -> Result<SeriesChapters, String> {
     let manga = props
         .get("manga")
-        .ok_or_else(|| "WestManga series data was missing".to_string())?;
+        .ok_or_else(|| "Manga series data was missing".to_string())?;
     let title = value_string(manga.get("title"));
     let (authors, tags, manga_type, status, released) = metadata(manga);
     let cover_url = manga
         .get("poster")
         .and_then(Value::as_str)
-        .map(abs)
+        .map(|poster| abs(base_url, poster))
         .unwrap_or_default();
     let description = manga
         .get("synopsis")
@@ -154,13 +178,13 @@ fn parse_series(series_id: &str, props: &Value) -> Result<SeriesChapters, String
     let chapters = manga
         .get("chapters")
         .and_then(Value::as_array)
-        .map(|chapters| parse_chapters(series_id, chapters))
+        .map(|chapters| parse_chapters(base_url, series_id, chapters))
         .unwrap_or_default();
 
     Ok(SeriesChapters {
         id: series_id.to_string(),
         title,
-        url: format!("{BASE_URL}/manga/{series_id}"),
+        url: format!("{base_url}/manga/{series_id}"),
         cover_url,
         authors,
         tags,
@@ -172,7 +196,7 @@ fn parse_series(series_id: &str, props: &Value) -> Result<SeriesChapters, String
     })
 }
 
-fn parse_chapters(series_slug: &str, chapters: &[Value]) -> Vec<Chapter> {
+fn parse_chapters(base_url: &str, series_slug: &str, chapters: &[Value]) -> Vec<Chapter> {
     let mut parsed = chapters
         .iter()
         .filter_map(|chapter| {
@@ -183,7 +207,7 @@ fn parse_chapters(series_slug: &str, chapters: &[Value]) -> Vec<Chapter> {
                 .or_else(|| number.as_str().map(str::to_string))?;
             let title = string_value(chapter.get("title"))?;
             let slug = string_value(chapter.get("slug")).unwrap_or(&number_string);
-            let url = format!("{BASE_URL}/manga/{series_slug}/chapter/{number_string}");
+            let url = format!("{base_url}/manga/{series_slug}/chapter/{number_string}");
             let published_at = value_string(chapter.get("created_at"));
             Some((
                 number.as_f64().unwrap_or_default(),
@@ -201,12 +225,20 @@ fn parse_chapters(series_slug: &str, chapters: &[Value]) -> Vec<Chapter> {
 }
 
 fn parse_pages(chapter: &Chapter, chapter_html: &str) -> Result<Vec<PageImage>, String> {
+    parse_pages_for_site(BASE_URL, chapter, chapter_html)
+}
+
+pub(crate) fn parse_pages_for_site(
+    base_url: &str,
+    chapter: &Chapter,
+    chapter_html: &str,
+) -> Result<Vec<PageImage>, String> {
     let props = inertia_props(chapter_html)?;
     let images = props
         .get("chapter")
         .and_then(|chapter| chapter.get("images"))
         .and_then(Value::as_array)
-        .ok_or_else(|| "WestManga chapter images were missing".to_string())?;
+        .ok_or_else(|| "Manga chapter images were missing".to_string())?;
     let mut images = images.iter().collect::<Vec<_>>();
     images.sort_by(|left, right| {
         numeric_value(left.get("order")).total_cmp(&numeric_value(right.get("order")))
@@ -216,7 +248,7 @@ fn parse_pages(chapter: &Chapter, chapter_html: &str) -> Result<Vec<PageImage>, 
         .filter_map(|image| image.get("image_path").and_then(Value::as_str))
         .filter(|path| !is_thumbnail(path))
         .map(|path| PageImage {
-            url: abs(path),
+            url: abs(base_url, path),
             referer: Some(chapter.url.clone()),
         })
         .filter(|page| !page.url.is_empty())
@@ -230,25 +262,25 @@ fn parse_pages(chapter: &Chapter, chapter_html: &str) -> Result<Vec<PageImage>, 
 fn is_thumbnail(path: &str) -> bool {
     let path = path.to_ascii_lowercase();
     [
-        "150x150", "300x300", "thumb", "emoji", "icon", "avatar", "logo", "banner", "-0x0",
-        "-45x45",
+        "150x150", "300x300", "thumb", "emoji", "icon", "avatar", "logo", "banner", "promosi",
+        "-0x0", "-45x45",
     ]
     .iter()
     .any(|marker| path.contains(marker))
 }
 
-fn inertia_props(html: &str) -> Result<Value, String> {
+pub(crate) fn inertia_props(html: &str) -> Result<Value, String> {
     let document = Html::parse_document(html);
     let selector = Selector::parse("#app[data-page]").expect("valid Inertia payload selector");
     let payload = document
         .select(&selector)
         .next()
         .and_then(|element| element.value().attr("data-page"))
-        .ok_or_else(|| "Could not find WestManga page data".to_string())?;
+        .ok_or_else(|| "Could not find manga site page data".to_string())?;
     let page: Value = serde_json::from_str(payload).map_err(|error| error.to_string())?;
     page.get("props")
         .cloned()
-        .ok_or_else(|| "WestManga page properties were missing".to_string())
+        .ok_or_else(|| "Manga site page properties were missing".to_string())
 }
 
 fn string_value(value: Option<&Value>) -> Option<&str> {

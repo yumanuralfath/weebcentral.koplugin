@@ -8,6 +8,7 @@
 
 pub mod komikindo;
 pub mod mangadex;
+pub mod mangaku;
 pub mod weebcentral;
 pub mod westmanga;
 
@@ -50,6 +51,7 @@ pub fn all() -> Vec<Box<dyn Source>> {
     vec![
         Box::new(weebcentral::WeebCentral),
         Box::new(komikindo::KomikIndo),
+        Box::new(mangaku::Mangaku),
         Box::new(mangadex::MangaDex),
         Box::new(westmanga::WestManga),
     ]

@@ -1,4 +1,4 @@
-use super::super::parse_search_results;
+use super::super::{parse_search_results_for_site, BASE_URL};
 use serde_json::json;
 
 #[test]
@@ -14,7 +14,7 @@ fn maps_search_result_fields_and_optional_details() {
         "release_year": 1997,
         "genres": [{"name": "Action"}, {"name": "Adventure"}]
     });
-    let results = parse_search_results(&[manga.clone()], true);
+    let results = parse_search_results_for_site(BASE_URL, &[manga.clone()], true);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, "one-piece");
     assert_eq!(results[0].title, "One Piece");
@@ -26,7 +26,7 @@ fn maps_search_result_fields_and_optional_details() {
     assert_eq!(results[0].status, "Ongoing");
     assert_eq!(results[0].released, "1997");
 
-    let results = parse_search_results(&[manga], false);
+    let results = parse_search_results_for_site(BASE_URL, &[manga], false);
     assert!(results[0].authors.is_empty());
     assert!(results[0].tags.is_empty());
 }

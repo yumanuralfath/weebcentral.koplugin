@@ -1,4 +1,4 @@
-use super::super::{parse_series_meta, Html};
+use super::super::{Html, parse_series_meta};
 
 #[test]
 fn parses_series_metadata_labels() {

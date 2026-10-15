@@ -1,4 +1,4 @@
-use super::super::parse_series;
+use super::super::{parse_series_for_site, BASE_URL};
 use serde_json::json;
 
 #[test]
@@ -13,7 +13,7 @@ fn returns_chapters_in_ascending_number_order_with_internal_reader_urls() {
             ]
         }
     });
-    let series = parse_series("one-piece", &props).unwrap();
+    let series = parse_series_for_site(BASE_URL, "one-piece", &props).unwrap();
     assert_eq!(series.chapters.len(), 3);
     assert_eq!(series.chapters[0].id, "chapter-1");
     assert_eq!(

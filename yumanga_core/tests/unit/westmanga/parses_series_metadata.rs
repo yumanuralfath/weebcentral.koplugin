@@ -1,4 +1,4 @@
-use super::super::parse_series;
+use super::super::{parse_series_for_site, BASE_URL};
 use serde_json::json;
 
 #[test]
@@ -18,7 +18,7 @@ fn maps_series_metadata_and_synopsis() {
             "chapters": []
         }
     });
-    let series = parse_series("one-piece", &props).unwrap();
+    let series = parse_series_for_site(BASE_URL, "one-piece", &props).unwrap();
     assert_eq!(series.title, "One Piece");
     assert_eq!(series.url, "https://westmanga.lol/manga/one-piece");
     assert_eq!(

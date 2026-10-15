@@ -9,5 +9,7 @@
     "./YuManga.koplugin/koreader/frontend/?.lua",
     "./YuManga.koplugin/koreader/frontend/?/init.lua"
   ],
-  "workspace.library": ["./YuManga.koplugin/koreader"]
+  "workspace.library": [
+    "/var/lib/flatpak/app/rocks.koreader.KOReader/x86_64/stable/a00811fae68173be4886650a81f6ad22de95eb0764fd78151b94a590adba9132/files/lib/koreader"
+  ]
 }

@@ -141,7 +141,8 @@ fn extension_dirs() -> Vec<PathBuf> {
             dirs.push(plugin_root.join("extensions"));
         }
     }
-    // Native / test builds from the repo.
+    // Native / test builds from the repo (folder casing differs by checkout).
+    dirs.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../yumanga.koplugin/extensions"));
     dirs.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../YuManga.koplugin/extensions"));
     dirs
 }

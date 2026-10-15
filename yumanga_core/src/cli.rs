@@ -3,9 +3,9 @@ use serde_json::json;
 use std::env;
 use std::process::ExitCode;
 
+use crate::download;
 use crate::models::SourceInfo;
 use crate::sources::{self, SearchOptions, Source};
-use crate::download;
 
 const USAGE: &str = "Usage:
   core sources
@@ -41,7 +41,13 @@ pub fn run() -> ExitCode {
             None => Err("Series ID is required".to_string()),
         }),
         Some("download") => with_source(argument(1), |source| {
-            match (argument(2), argument(3), argument(4), argument(5), argument(6)) {
+            match (
+                argument(2),
+                argument(3),
+                argument(4),
+                argument(5),
+                argument(6),
+            ) {
                 (
                     Some(series_id),
                     Some(selection),

@@ -8,6 +8,7 @@
 
 pub mod komikindo;
 pub mod weebcentral;
+pub mod westmanga;
 
 use crate::models::{Chapter, PageImage, SearchResult, SeriesChapters};
 use crate::util;
@@ -48,6 +49,7 @@ pub fn all() -> Vec<Box<dyn Source>> {
     vec![
         Box::new(weebcentral::WeebCentral),
         Box::new(komikindo::KomikIndo),
+        Box::new(westmanga::WestManga),
     ]
 }
 

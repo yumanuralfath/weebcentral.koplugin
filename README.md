@@ -15,6 +15,12 @@ KOReader plugin to search manga from multiple sources (including WeebCentral), s
 - Output as CBZ files; giving a volume name combines the selection into one CBZ.
 - Prebuilt releases for every [KOReader koxtoolchain](https://github.com/koreader/koxtoolchain) target (Kindle, Kobo, PocketBook, reMarkable, Cervantes, Bookeen).
 
+## Supported manga websites
+
+- [WeebCentral](https://weebcentral.com/) (`weebcentral`)
+- [KomikIndo](https://komikindo.ch/) (`komikindo`)
+- [WestManga](https://westmanga.lol/) (`westmanga`)
+
 ## Install a release
 
 1. Open the repository's **Releases** page.
@@ -153,8 +159,8 @@ The Rust core supports `sources`, `search`, `chapters`, and `download` commands.
 
 ## Repository layout
 
-| Path                | Purpose                                          |
-| ------------------- | ------------------------------------------------ |
-| `yumanga.koplugin/` | KOReader plugin (Lua UI and bundled core binary) |
-| `yumanga_core/`     | Rust downloader core                             |
-| `.github/workflows/`| Release workflow for all koxtoolchain targets    |
+| Path                 | Purpose                                          |
+| -------------------- | ------------------------------------------------ |
+| `yumanga.koplugin/`  | KOReader plugin (Lua UI and bundled core binary) |
+| `yumanga_core/`      | Rust downloader core                             |
+| `.github/workflows/` | Release workflow for all koxtoolchain targets    |

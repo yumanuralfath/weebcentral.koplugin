@@ -22,6 +22,8 @@ pub struct SearchOptions<'a> {
     pub cover_cache_dir: &'a str,
     /// Fetch per-series details (authors, tags...) for every result.
     pub with_details: bool,
+    /// Optional source-supported genre name.
+    pub genre: &'a str,
 }
 
 pub trait Source: Sync {
@@ -30,6 +32,11 @@ pub trait Source: Sync {
 
     /// Human readable name shown in the UI.
     fn name(&self) -> &'static str;
+
+    /// Filters supported by this source, advertised to the plugin UI.
+    fn search_filters(&self) -> &'static [&'static str] {
+        &["genre"]
+    }
 
     fn search(&self, keyword: &str, options: &SearchOptions) -> Result<Vec<SearchResult>, String>;
 
@@ -63,4 +70,50 @@ pub fn all() -> Vec<Box<dyn Source>> {
 
 pub fn find(id: &str) -> Option<Box<dyn Source>> {
     all().into_iter().find(|source| source.id() == id)
+}
+
+pub fn filter_results_by_genre(results: &mut Vec<SearchResult>, genre: &str) {
+    let genre = genre.trim();
+    if genre.is_empty() {
+        return;
+    }
+    let genre = genre.to_lowercase();
+    results.retain(|result| {
+        result
+            .tags
+            .to_lowercase()
+            .split(',')
+            .any(|tag| tag.trim().contains(&genre))
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::filter_results_by_genre;
+    use crate::models::SearchResult;
+
+    fn result(tags: &str) -> SearchResult {
+        SearchResult {
+            id: String::new(),
+            title: String::new(),
+            url: String::new(),
+            cover_url: String::new(),
+            cover_path: String::new(),
+            authors: String::new(),
+            tags: tags.to_string(),
+            manga_type: String::new(),
+            status: String::new(),
+            released: String::new(),
+        }
+    }
+
+    #[test]
+    fn genre_filter_matches_tags_case_insensitively() {
+        let mut results = vec![result("Action, Comedy"), result("Drama")];
+
+        filter_results_by_genre(&mut results, "  comedy ");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].tags, "Action, Comedy");
+    }
 }

@@ -182,11 +182,20 @@ end
 
 function UI.openSearchDialog(plugin)
 	local dialog
-	dialog = InputDialog:new({
+	dialog = MultiInputDialog:new({
 		title = _("Search manga"),
 		description = T(_("Sources: %1"), Sources.names(plugin)),
-		input = plugin.search_keyword,
-		input_hint = _("Manga title"),
+		fields = {
+			{
+				text = plugin.search_keyword or "",
+				hint = _("Manga title (optional)"),
+			},
+			{
+				text = plugin.search_genre or "",
+				hint = _("Optional genre, e.g. Comedy"),
+				description = _("Matches genres provided by each source."),
+			},
+		},
 		buttons = {
 			{
 				{
@@ -200,11 +209,13 @@ function UI.openSearchDialog(plugin)
 					text = _("Search"),
 					is_enter_default = true,
 					callback = function()
-						plugin.search_keyword = dialog:getInputText():match("^%s*(.-)%s*$")
+						local fields = dialog:getFields()
+						plugin.search_keyword = (fields[1] or ""):match("^%s*(.-)%s*$")
+						plugin.search_genre = (fields[2] or ""):match("^%s*(.-)%s*$")
 						UIManager:close(dialog)
-						if plugin.search_keyword ~= "" then
+						if plugin.search_keyword ~= "" or plugin.search_genre ~= "" then
 							Trapper:wrap(function()
-								UI.search(plugin, plugin.search_keyword)
+								UI.search(plugin, plugin.search_keyword, plugin.search_genre)
 							end)
 						end
 					end,
@@ -216,7 +227,7 @@ function UI.openSearchDialog(plugin)
 	dialog:onShowKeyboard()
 end
 
-function UI.search(plugin, keyword)
+function UI.search(plugin, keyword, genre)
 	local selected = Sources.selected(plugin)
 	if #selected == 0 then
 		showMessage(_("No sources available. Check that the core executable is installed."))
@@ -239,7 +250,8 @@ function UI.search(plugin, keyword)
 			source.id,
 			keyword,
 			plugin.cover_cache_directory,
-			with_details
+			with_details,
+			genre or ""
 		)
 		if output == nil then
 			return -- cancelled

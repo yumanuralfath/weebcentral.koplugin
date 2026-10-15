@@ -55,4 +55,5 @@ pub struct PageImage {
 pub struct SourceInfo {
     pub id: String,
     pub name: String,
+    pub search_filters: Vec<String>,
 }

@@ -22,8 +22,12 @@ impl Source for MangaDex {
         "MangaDex"
     }
 
+    fn search_filters(&self) -> &'static [&'static str] {
+        &["genre"]
+    }
+
     fn search(&self, keyword: &str, options: &SearchOptions) -> Result<Vec<SearchResult>, String> {
-        search(keyword, options.cover_cache_dir, options.with_details)
+        search_with_genre(keyword, options.cover_cache_dir, options.with_details, options.genre)
     }
 
     fn series(&self, series_id: &str) -> Result<SeriesChapters, String> {
@@ -35,23 +39,26 @@ impl Source for MangaDex {
     }
 }
 
-pub fn search(
+pub fn search_with_genre(
     keyword: &str,
     cover_cache_dir: &str,
     with_details: bool,
+    genre: &str,
 ) -> Result<Vec<SearchResult>, String> {
-    let response = ureq::get(&format!("{API_URL}/manga"))
-        .query("title", keyword)
-        .query("limit", "10")
-        .query("includes[]", "cover_art")
-        .query("includes[]", "author")
-        .query("includes[]", "artist")
-        .query("contentRating[]", "safe")
-        .query("contentRating[]", "suggestive")
+    let tag_id = if genre.trim().is_empty() {
+        None
+    } else {
+        let tags = api_json(&format!("{API_URL}/manga/tag"), &[])?;
+        Some(find_tag_id(&tags, genre.trim())?)
+    };
+    let query = search_query(keyword, tag_id.as_deref());
+    let mut request = ureq::get(&format!("{API_URL}/manga"))
         .set("User-Agent", API_USER_AGENT)
-        .set("Accept", "application/json")
-        .call()
-        .map_err(|error| error.to_string())?;
+        .set("Accept", "application/json");
+    for (key, value) in &query {
+        request = request.query(key, value);
+    }
+    let response = request.call().map_err(|error| error.to_string())?;
     let payload: Value = crate::util::read_response_text(response)
         .and_then(|body| serde_json::from_str(&body).map_err(|error| error.to_string()))?;
     let mangas = payload
@@ -66,6 +73,71 @@ pub fn search(
         result.cover_path = cache_cover(&result.id, &result.cover_url, Path::new(cover_cache_dir));
     }
     Ok(results)
+}
+
+fn search_query(keyword: &str, tag_id: Option<&str>) -> Vec<(String, String)> {
+    let mut query = vec![
+        ("limit".to_string(), "10".to_string()),
+        ("includes[]".to_string(), "cover_art".to_string()),
+        ("includes[]".to_string(), "author".to_string()),
+        ("includes[]".to_string(), "artist".to_string()),
+        ("contentRating[]".to_string(), "safe".to_string()),
+        ("contentRating[]".to_string(), "suggestive".to_string()),
+    ];
+    if !keyword.trim().is_empty() {
+        query.push(("title".to_string(), keyword.to_string()));
+    }
+    if let Some(tag_id) = tag_id {
+        query.push(("includedTags[]".to_string(), tag_id.to_string()));
+    }
+    query
+}
+
+fn find_tag_id(payload: &Value, genre: &str) -> Result<String, String> {
+    payload
+        .get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|tag| {
+            tag.get("attributes")
+                .and_then(|attributes| attributes.get("name"))
+                .and_then(|names| names.get("en"))
+                .and_then(Value::as_str)
+                .is_some_and(|name| name.eq_ignore_ascii_case(genre))
+        })
+        .and_then(|tag| tag.get("id"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| format!("MangaDex genre not found: {genre}"))
+}
+
+#[cfg(test)]
+mod genre_search_tests {
+    use super::{find_tag_id, search_query};
+    use serde_json::json;
+
+    #[test]
+    fn genre_only_query_omits_empty_title_and_includes_tag() {
+        let query = search_query("", Some("comedy-tag"));
+
+        assert!(!query.iter().any(|(key, _)| key == "title"));
+        assert!(query.iter().any(|(key, value)| {
+            key == "includedTags[]" && value == "comedy-tag"
+        }));
+    }
+
+    #[test]
+    fn finds_genre_tag_without_case_sensitive_input() {
+        let payload = json!({
+            "data": [{
+                "id": "comedy-tag",
+                "attributes": { "name": { "en": "Comedy" } }
+            }]
+        });
+
+        assert_eq!(find_tag_id(&payload, "comedy").unwrap(), "comedy-tag");
+    }
 }
 
 fn parse_search_results(mangas: &[Value], with_details: bool) -> Vec<SearchResult> {

@@ -9,7 +9,7 @@ use crate::download;
 
 const USAGE: &str = "Usage:
   core sources
-  core search   <source> <keyword> [cover-cache-dir] [with-details: 0|1]
+    core search   <source> <keyword> [cover-cache-dir] [with-details: 0|1] [genre]
   core chapters <source> <series-id>
   core download <source> <series-id> <selection> <volume-name> <output-dir> <progress-file>";
 
@@ -23,17 +23,32 @@ pub fn run() -> ExitCode {
             .map(|source| SourceInfo {
                 id: source.id().to_string(),
                 name: source.name().to_string(),
+                search_filters: source
+                    .search_filters()
+                    .iter()
+                    .map(|filter| filter.to_string())
+                    .collect(),
             })
             .collect::<Vec<_>>())),
         Some("search") => with_source(argument(1), |source| match argument(2) {
-            Some(keyword) if !keyword.trim().is_empty() => source.search(
-                keyword,
-                &SearchOptions {
-                    cover_cache_dir: argument(3).unwrap_or_default(),
-                    // "0" skips the per-series detail requests.
-                    with_details: argument(4) != Some("0"),
-                },
-            ),
+            Some(keyword)
+                if !keyword.trim().is_empty() || !argument(5).unwrap_or_default().trim().is_empty() =>
+            {
+                let genre = argument(5).unwrap_or_default();
+                let mut results = source.search(
+                    keyword,
+                    &SearchOptions {
+                        cover_cache_dir: argument(3).unwrap_or_default(),
+                        // Genre filtering requires source metadata even when details are hidden.
+                        with_details: argument(4) != Some("0") || !genre.trim().is_empty(),
+                        genre,
+                    },
+                )?;
+                if source.search_filters().contains(&"genre") {
+                    sources::filter_results_by_genre(&mut results, genre);
+                }
+                Ok(results)
+            }
             _ => Err("Search keyword is required".to_string()),
         }),
         Some("chapters") => with_source(argument(1), |source| match argument(2) {

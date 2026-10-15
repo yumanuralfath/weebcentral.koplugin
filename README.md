@@ -11,6 +11,7 @@ KOReader plugin to search manga from multiple sources (including WeebCentral), s
 ## Features
 
 - Multi-source support: search manga across multiple sources (such as WeebCentral) from inside KOReader. Results show the cover, title, author, status, type, year and tags.
+- Optional genre filtering across sources, using each source's available manga tags. Leave the title blank to search by genre alone. Genre filtering loads result details even when extra search details are disabled.
 - Source switcher: easily select and configure which manga sources are active directly from the KOReader menu.
 - Manga detail page with a large cover, status/type badges, tag chips, last update date and a scrollable synopsis.
 - Chapter picker with checkboxes: tap to select, long-press to select a range, newest/oldest first, jump between pages.

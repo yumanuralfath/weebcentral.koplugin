@@ -7,6 +7,7 @@
 //!      Nothing else (CLI, downloader, Lua) needs to change.
 
 pub mod komikindo;
+pub mod komiku;
 pub mod mangadex;
 pub mod mangaku;
 pub mod weebcentral;
@@ -51,6 +52,7 @@ pub fn all() -> Vec<Box<dyn Source>> {
     vec![
         Box::new(weebcentral::WeebCentral),
         Box::new(komikindo::KomikIndo),
+        Box::new(komiku::Komiku),
         Box::new(mangaku::Mangaku),
         Box::new(mangadex::MangaDex),
         Box::new(westmanga::WestManga),

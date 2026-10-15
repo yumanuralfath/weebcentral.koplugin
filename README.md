@@ -19,6 +19,7 @@ KOReader plugin to search manga from multiple sources (including WeebCentral), s
 
 - [WeebCentral](https://weebcentral.com/) (`weebcentral`)
 - [KomikIndo](https://komikindo.ch/) (`komikindo`)
+- [Komiku](https://komiku.org/) (`komiku`)
 - [Mangaku](https://mangaku.lol/) (`mangaku`)
 - [MangaDex](https://mangadex.org/) (`mangadex`)
 - [WestManga](https://westmanga.lol/) (`westmanga`)

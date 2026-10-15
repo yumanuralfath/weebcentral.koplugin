@@ -1,0 +1,4 @@
+mod accepts_encoded_manga_slug;
+mod parses_search_results;
+mod parses_series_metadata_and_chapter_order;
+mod reads_reader_images_without_promo;

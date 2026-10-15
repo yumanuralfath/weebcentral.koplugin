@@ -17,6 +17,7 @@ KOReader plugin to search manga from multiple sources (including WeebCentral), s
 
 ## Supported manga websites
 
+- [BacaKomik](https://bacakomik.my/) (`bacakomik`)
 - [WeebCentral](https://weebcentral.com/) (`weebcentral`)
 - [KomikIndo](https://komikindo.ch/) (`komikindo`)
 - [Komiku](https://komiku.org/) (`komiku`)

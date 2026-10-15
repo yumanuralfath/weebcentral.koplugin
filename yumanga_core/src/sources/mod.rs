@@ -6,6 +6,7 @@
 //!   3. return it from `all()`
 //!      Nothing else (CLI, downloader, Lua) needs to change.
 
+pub mod bacakomik;
 pub mod komikindo;
 pub mod komiku;
 pub mod mangadex;
@@ -51,6 +52,7 @@ pub trait Source: Sync {
 pub fn all() -> Vec<Box<dyn Source>> {
     vec![
         Box::new(weebcentral::WeebCentral),
+        Box::new(bacakomik::BacaKomik),
         Box::new(komikindo::KomikIndo),
         Box::new(komiku::Komiku),
         Box::new(mangaku::Mangaku),

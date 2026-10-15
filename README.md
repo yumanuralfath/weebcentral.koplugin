@@ -1,5 +1,11 @@
 # YuManga Downloader for KOReader
 
+
+https://github.com/user-attachments/assets/cc885bff-f19d-4ae5-8281-e2cfb4f2eb92
+
+
+
+
 KOReader plugin to search manga from multiple sources (including WeebCentral), select chapters, and download them as CBZ files. The KOReader interface is written in Lua; the downloader core is written in Rust.
 
 ## Features

@@ -1,0 +1,2 @@
+mod extracts_image_extensions;
+mod resolves_urls_against_base;

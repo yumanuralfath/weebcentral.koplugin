@@ -7,7 +7,7 @@ use std::path::Path;
 use super::{SearchOptions, Source};
 use crate::models::{Chapter, PageImage, SearchResult, SeriesChapters};
 use crate::util::{
-    USER_AGENT, absolute_url, get_text, id_from_href, normalize_whitespace, validate_id,
+    absolute_url, get_text, id_from_href, normalize_whitespace, validate_id, USER_AGENT,
 };
 
 const BASE_URL: &str = "https://komikindo.ch";
@@ -323,63 +323,5 @@ fn cache_cover(id: &str, cover_url: &str, cache_dir: &Path) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{Chapter, Html, parse_chapters, parse_metadata, parse_pages, parse_search_results};
-
-    #[test]
-    fn parses_search_results_and_series_metadata() {
-        let html = r#"<div class="listupd"><div class="animepost"><div class="animposx"><a href="https://komikindo.ch/komik/846048-eleceed/" itemprop="url" title="Komik Eleceed"><img src="/cover.jpg"></a></div></div></div>
-            <div class="infox"><div class="spe"><span><b>Status:</b> Berjalan</span><span><b>Pengarang:</b> Son Jae-Ho</span><span><b>Ilustrator:</b> Zhena</span><span><b>Tema:</b> Animals</span><span><b>Jenis Komik:</b> Manhwa</span></div></div>"#;
-        let document = Html::parse_document(html);
-        let results = parse_search_results(&document);
-        assert_eq!(results[0].id, "846048-eleceed");
-        assert_eq!(results[0].title, "Eleceed");
-        assert_eq!(results[0].cover_url, "https://komikindo.ch/cover.jpg");
-
-        let metadata = parse_metadata(&document);
-        assert_eq!(metadata.authors, "Son Jae-Ho, Zhena");
-        assert_eq!(metadata.tags, "Animals");
-        assert_eq!(metadata.status, "Berjalan");
-        assert_eq!(metadata.manga_type, "Manhwa");
-    }
-
-    #[test]
-    fn reads_reader_images_in_order_without_collecting_ads() {
-        let chapter = Chapter {
-            id: "eleceed-chapter-1".into(),
-            title: "Chapter 1".into(),
-            url: "https://komikindo.ch/eleceed-chapter-1/".into(),
-            published_at: String::new(),
-        };
-        let html = r#"<img src="https://example.com/ad.jpg"><div id="Baca_Komik"><img src="//cdn.example/001.webp"><img src="//cdn.example/002.webp"><img src="//cdn.example/002.webp"></div>"#;
-        let pages = parse_pages(&chapter, html).unwrap();
-        assert_eq!(pages.len(), 2);
-        assert_eq!(pages[0].url, "https://cdn.example/001.webp");
-        assert_eq!(pages[1].url, "https://cdn.example/002.webp");
-        assert_eq!(pages[0].referer.as_deref(), Some(chapter.url.as_str()));
-    }
-
-    #[test]
-    fn extracts_chapter_slugs_and_returns_oldest_first() {
-        let html = r#"<div id="chapter_list"><ul>
-            <li><span class="lchx"><a href="https://komikindo.ch/eleceed-chapter-422/">Chapter 422</a></span><span class="dt">1 hari lalu</span></li>
-            <li><span class="lchx"><a href="https://komikindo.ch/eleceed-chapter-421/">Chapter 421</a></span><span class="dt">1 minggu lalu</span></li>
-        </ul></div>"#;
-        let chapters = parse_chapters(&Html::parse_document(html));
-        assert_eq!(chapters.len(), 2);
-        assert_eq!(chapters[0].id, "eleceed-chapter-421");
-        assert_eq!(chapters[0].title, "Chapter 421");
-        assert_eq!(chapters[1].id, "eleceed-chapter-422");
-    }
-
-    #[test]
-    fn missing_reader_images_is_an_error() {
-        let chapter = Chapter {
-            id: "eleceed-chapter-1".into(),
-            title: "Chapter 1".into(),
-            url: String::new(),
-            published_at: String::new(),
-        };
-        assert!(parse_pages(&chapter, "<html></html>").is_err());
-    }
-}
+#[path = "../../tests/unit/komikindo/mod.rs"]
+mod tests;

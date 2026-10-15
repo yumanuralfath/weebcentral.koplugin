@@ -33,7 +33,9 @@ pub fn image_extension(url: &str) -> String {
         .map(|(_, extension)| extension)
         .filter(|extension| {
             (1..=5).contains(&extension.len())
-                && extension.chars().all(|character| character.is_ascii_alphanumeric())
+                && extension
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric())
         })
         .map(|extension| format!(".{}", extension.to_ascii_lowercase()))
         .unwrap_or_else(|| ".jpg".to_string())
@@ -114,23 +116,5 @@ pub fn safe_filename(value: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{absolute_url, image_extension};
-
-    #[test]
-    fn resolves_urls_against_the_base() {
-        let base = "https://example.com";
-        assert_eq!(absolute_url(base, "/a/b"), "https://example.com/a/b");
-        assert_eq!(absolute_url(base, "//cdn.x/y.png"), "https://cdn.x/y.png");
-        assert_eq!(absolute_url(base, "https://z/y"), "https://z/y");
-        assert_eq!(absolute_url(base, ""), "");
-    }
-
-    #[test]
-    fn extracts_image_extensions() {
-        assert_eq!(image_extension("https://x/a/001.PNG?v=2"), ".png");
-        assert_eq!(image_extension("https://x/a/001.webp"), ".webp");
-        assert_eq!(image_extension("https://x/a/001"), ".jpg");
-        assert_eq!(image_extension("https://x.com/img"), ".jpg");
-    }
-}
+#[path = "../tests/unit/util/mod.rs"]
+mod tests;

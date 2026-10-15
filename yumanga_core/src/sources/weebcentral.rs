@@ -7,8 +7,8 @@ use std::path::Path;
 use super::{SearchOptions, Source};
 use crate::models::{Chapter, PageImage, SearchResult, SeriesChapters};
 use crate::util::{
-    USER_AGENT, absolute_url, get_text, id_from_href, normalize_whitespace, read_response_text,
-    validate_id,
+    absolute_url, get_text, id_from_href, normalize_whitespace, read_response_text, validate_id,
+    USER_AGENT,
 };
 
 const BASE_URL: &str = "https://weebcentral.com";
@@ -262,8 +262,7 @@ pub fn load_chapters(series_id: &str) -> Result<SeriesChapters, String> {
 /// remaining URLs are derived from its numbering scheme ("...-001.png").
 fn parse_pages(chapter: &Chapter, chapter_html: &str) -> Result<Vec<PageImage>, String> {
     let document = Html::parse_document(chapter_html);
-    let selector =
-        Selector::parse("link[rel='preload']").expect("valid first page image selector");
+    let selector = Selector::parse("link[rel='preload']").expect("valid first page image selector");
     let first_page = document
         .select(&selector)
         .next()
@@ -352,7 +351,10 @@ fn cache_cover(id: &str, cover_url: &str, cache_dir: &Path) -> String {
         .unwrap_or("img");
     let path = cache_dir.join(format!("{id}.{extension}"));
     // Reuse a previously downloaded cover instead of fetching it again.
-    if fs::metadata(&path).map(|meta| meta.len() > 0).unwrap_or(false) {
+    if fs::metadata(&path)
+        .map(|meta| meta.len() > 0)
+        .unwrap_or(false)
+    {
         return path.to_string_lossy().into_owned();
     }
     let response = match ureq::get(cover_url).set("User-Agent", USER_AGENT).call() {
@@ -372,69 +374,5 @@ fn cache_cover(id: &str, cover_url: &str, cache_dir: &Path) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{Chapter, Html, parse_pages, parse_series_meta};
-
-    #[test]
-    fn derives_every_page_url_from_the_first_one() {
-        let chapter = Chapter {
-            id: "ABC".into(),
-            title: "Chapter 1".into(),
-            url: String::new(),
-            published_at: String::new(),
-        };
-        let html = r#"<html><head>
-            <link rel="preload" href="https://cdn.example/m/001-009.png" as="image">
-            </head><body>
-            x-show="page === 1 ? a" x-show="page === 3 ? b"
-            </body></html>"#;
-        let pages = parse_pages(&chapter, html).unwrap();
-        let urls: Vec<_> = pages.iter().map(|page| page.url.as_str()).collect();
-        assert_eq!(
-            urls,
-            [
-                "https://cdn.example/m/001-001.png",
-                "https://cdn.example/m/001-002.png",
-                "https://cdn.example/m/001-003.png"
-            ]
-        );
-        assert_eq!(
-            pages[0].referer.as_deref(),
-            Some("https://weebcentral.com/chapters/ABC")
-        );
-    }
-
-    #[test]
-    fn missing_preload_link_is_an_error() {
-        let chapter = Chapter {
-            id: "ABC".into(),
-            title: String::new(),
-            url: String::new(),
-            published_at: String::new(),
-        };
-        assert!(parse_pages(&chapter, "<html></html>").is_err());
-    }
-
-    #[test]
-    fn parses_series_metadata_labels() {
-        let page = r#"<ul>
-            <li><strong>Author(s): </strong><span><a>Eiichiro Oda</a></span></li>
-            <li><strong>Tags(s): </strong><span><a>Action</a>, <a>Adventure</a></span></li>
-            <li><strong>Type: </strong><a>Manga</a></li>
-            <li><strong>Status: </strong><a>Ongoing</a></li>
-            <li><strong>Released: </strong><span>1997</span></li>
-        </ul>"#;
-        let meta = parse_series_meta(&Html::parse_document(page));
-        assert_eq!(meta.authors, "Eiichiro Oda");
-        assert_eq!(meta.tags, "Action, Adventure");
-        assert_eq!(meta.manga_type, "Manga");
-        assert_eq!(meta.status, "Ongoing");
-        assert_eq!(meta.released, "1997");
-    }
-
-    #[test]
-    fn missing_metadata_is_empty() {
-        let meta = parse_series_meta(&Html::parse_document("<p>nothing</p>"));
-        assert!(meta.authors.is_empty() && meta.released.is_empty());
-    }
-}
+#[path = "../../tests/unit/weebcentral/mod.rs"]
+mod tests;

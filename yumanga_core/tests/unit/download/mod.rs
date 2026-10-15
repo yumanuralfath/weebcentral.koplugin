@@ -1,0 +1,7 @@
+mod downloads_one_cbz_per_chapter;
+mod generates_manga_filename;
+mod merges_chapters_into_one_volume;
+mod parses_ranges_and_removes_duplicates;
+mod parses_single_and_discrete_chapters;
+mod rejects_chapters_outside_the_list;
+mod support;

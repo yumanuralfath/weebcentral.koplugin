@@ -19,7 +19,10 @@ KOReader plugin to search manga from multiple sources (including WeebCentral), s
 
 - [WeebCentral](https://weebcentral.com/) (`weebcentral`)
 - [KomikIndo](https://komikindo.ch/) (`komikindo`)
+- [MangaDex](https://mangadex.org/) (`mangadex`)
 - [WestManga](https://westmanga.lol/) (`westmanga`)
+
+MangaDex search and chapter feeds use English translations. Externally hosted or unavailable chapters are omitted. MangaDex and scanlation group names are shown in source and chapter titles; please respect MangaDex's content removal requests.
 
 ## Install a release
 

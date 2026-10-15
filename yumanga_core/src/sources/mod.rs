@@ -6,6 +6,7 @@
 //!   3. return it from `all()`
 //!      Nothing else (CLI, downloader, Lua) needs to change.
 
+pub mod komikindo;
 pub mod weebcentral;
 
 use crate::models::{Chapter, PageImage, SearchResult, SeriesChapters};
@@ -44,7 +45,10 @@ pub trait Source: Sync {
 
 /// All built-in sources. The first one is the default.
 pub fn all() -> Vec<Box<dyn Source>> {
-    vec![Box::new(weebcentral::WeebCentral)]
+    vec![
+        Box::new(weebcentral::WeebCentral),
+        Box::new(komikindo::KomikIndo),
+    ]
 }
 
 pub fn find(id: &str) -> Option<Box<dyn Source>> {

@@ -114,7 +114,8 @@ fn find_tag_id(payload: &Value, genre: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod genre_search_tests {
-    use super::{find_tag_id, search_query};
+    use super::{find_tag_id, prefer_indonesian_chapters, search_query};
+    use crate::models::Chapter;
     use serde_json::json;
 
     #[test]
@@ -137,6 +138,38 @@ mod genre_search_tests {
         });
 
         assert_eq!(find_tag_id(&payload, "comedy").unwrap(), "comedy-tag");
+    }
+
+    #[test]
+    fn uses_indonesian_chapters_without_loading_english() {
+        let indonesian = vec![Chapter {
+            id: "id-chapter".to_string(),
+            title: "Chapter Indonesia".to_string(),
+            url: String::new(),
+            published_at: String::new(),
+        }];
+
+        let chapters = prefer_indonesian_chapters(indonesian, || {
+            panic!("English chapters should not be requested")
+        })
+        .unwrap();
+
+        assert_eq!(chapters[0].id, "id-chapter");
+    }
+
+    #[test]
+    fn falls_back_to_english_when_indonesian_is_missing() {
+        let chapters = prefer_indonesian_chapters(Vec::new(), || {
+            Ok(vec![Chapter {
+                id: "en-chapter".to_string(),
+                title: "English Chapter".to_string(),
+                url: String::new(),
+                published_at: String::new(),
+            }])
+        })
+        .unwrap();
+
+        assert_eq!(chapters[0].id, "en-chapter");
     }
 }
 
@@ -182,6 +215,25 @@ pub fn load_series(series_id: &str) -> Result<SeriesChapters, String> {
     let manga = manga_payload
         .get("data")
         .ok_or_else(|| "MangaDex series data was missing".to_string())?;
+    let chapters = prefer_indonesian_chapters(load_chapters(series_id, "id")?, || {
+        load_chapters(series_id, "en")
+    })?;
+
+    Ok(load_series_data(series_id, manga, chapters))
+}
+
+fn prefer_indonesian_chapters(
+    indonesian: Vec<Chapter>,
+    load_english: impl FnOnce() -> Result<Vec<Chapter>, String>,
+) -> Result<Vec<Chapter>, String> {
+    if indonesian.is_empty() {
+        load_english()
+    } else {
+        Ok(indonesian)
+    }
+}
+
+fn load_chapters(series_id: &str, language: &str) -> Result<Vec<Chapter>, String> {
     let mut chapters = Vec::new();
     let mut offset = 0;
     loop {
@@ -191,7 +243,7 @@ pub fn load_series(series_id: &str) -> Result<SeriesChapters, String> {
             &[
                 ("limit", "500"),
                 ("offset", &offset_string),
-                ("translatedLanguage[]", "en"),
+                ("translatedLanguage[]", language),
                 ("order[volume]", "asc"),
                 ("order[chapter]", "asc"),
                 ("includes[]", "scanlation_group"),
@@ -212,7 +264,7 @@ pub fn load_series(series_id: &str) -> Result<SeriesChapters, String> {
         }
     }
 
-    Ok(load_series_data(series_id, manga, chapters))
+    Ok(chapters)
 }
 
 fn load_series_data(series_id: &str, manga: &Value, chapters: Vec<Chapter>) -> SeriesChapters {

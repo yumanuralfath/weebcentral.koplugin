@@ -5,7 +5,7 @@ use std::path::Path;
 
 use super::{SearchOptions, Source};
 use crate::models::{Chapter, PageImage, SearchResult, SeriesChapters};
-use crate::util::{validate_id, USER_AGENT};
+use crate::util::{USER_AGENT, validate_id};
 
 const API_URL: &str = "https://api.mangadex.org";
 const SITE_URL: &str = "https://mangadex.org";
@@ -27,7 +27,12 @@ impl Source for MangaDex {
     }
 
     fn search(&self, keyword: &str, options: &SearchOptions) -> Result<Vec<SearchResult>, String> {
-        search_with_genre(keyword, options.cover_cache_dir, options.with_details, options.genre)
+        search_with_genre(
+            keyword,
+            options.cover_cache_dir,
+            options.with_details,
+            options.genre,
+        )
     }
 
     fn series(&self, series_id: &str) -> Result<SeriesChapters, String> {
@@ -181,10 +186,8 @@ fn prefer_indonesian_translations(chapters: Vec<Value>) -> Vec<Value> {
             if !has_readable_pages(attributes) {
                 return false;
             }
-            let is_english = attributes
-                .get("translatedLanguage")
-                .and_then(Value::as_str)
-                == Some("en");
+            let is_english =
+                attributes.get("translatedLanguage").and_then(Value::as_str) == Some("en");
             !is_english
                 || chapter_identity(chapter)
                     .is_none_or(|identity| !indonesian_chapters.contains(&identity))

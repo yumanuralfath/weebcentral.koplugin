@@ -114,8 +114,7 @@ fn find_tag_id(payload: &Value, genre: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod genre_search_tests {
-    use super::{find_tag_id, prefer_indonesian_chapters, search_query};
-    use crate::models::Chapter;
+    use super::{find_tag_id, prefer_indonesian_translations, search_query};
     use serde_json::json;
 
     #[test]
@@ -141,35 +140,40 @@ mod genre_search_tests {
     }
 
     #[test]
-    fn uses_indonesian_chapters_without_loading_english() {
-        let indonesian = vec![Chapter {
-            id: "id-chapter".to_string(),
-            title: "Chapter Indonesia".to_string(),
-            url: String::new(),
-            published_at: String::new(),
-        }];
+    fn prefers_indonesian_per_chapter_and_keeps_english_only_chapters() {
+        let chapters = json!([
+            {
+                "id": "en-chapter-1",
+                "attributes": {
+                    "volume": "1", "chapter": "1", "translatedLanguage": "en",
+                    "pages": 10, "externalUrl": null, "isUnavailable": false
+                }
+            },
+            {
+                "id": "id-chapter-1",
+                "attributes": {
+                    "volume": "1", "chapter": "1", "translatedLanguage": "id",
+                    "pages": 10, "externalUrl": null, "isUnavailable": false
+                }
+            },
+            {
+                "id": "en-chapter-2",
+                "attributes": {
+                    "volume": "1", "chapter": "2", "translatedLanguage": "en",
+                    "pages": 10, "externalUrl": null, "isUnavailable": false
+                }
+            }
+        ]);
 
-        let chapters = prefer_indonesian_chapters(indonesian, || {
-            panic!("English chapters should not be requested")
-        })
-        .unwrap();
+        let selected = prefer_indonesian_translations(chapters.as_array().unwrap().clone());
 
-        assert_eq!(chapters[0].id, "id-chapter");
-    }
-
-    #[test]
-    fn falls_back_to_english_when_indonesian_is_missing() {
-        let chapters = prefer_indonesian_chapters(Vec::new(), || {
-            Ok(vec![Chapter {
-                id: "en-chapter".to_string(),
-                title: "English Chapter".to_string(),
-                url: String::new(),
-                published_at: String::new(),
-            }])
-        })
-        .unwrap();
-
-        assert_eq!(chapters[0].id, "en-chapter");
+        assert_eq!(
+            selected
+                .iter()
+                .map(|chapter| chapter["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["id-chapter-1", "en-chapter-2"]
+        );
     }
 }
 
@@ -215,45 +219,71 @@ pub fn load_series(series_id: &str) -> Result<SeriesChapters, String> {
     let manga = manga_payload
         .get("data")
         .ok_or_else(|| "MangaDex series data was missing".to_string())?;
-    let chapters = prefer_indonesian_chapters(load_chapters(series_id, "id")?, || {
-        load_chapters(series_id, "en")
-    })?;
+    let chapters = load_chapters(series_id)?;
 
     Ok(load_series_data(series_id, manga, chapters))
 }
 
-fn prefer_indonesian_chapters(
-    indonesian: Vec<Chapter>,
-    load_english: impl FnOnce() -> Result<Vec<Chapter>, String>,
-) -> Result<Vec<Chapter>, String> {
-    if indonesian.is_empty() {
-        load_english()
-    } else {
-        Ok(indonesian)
-    }
+fn prefer_indonesian_translations(chapters: Vec<Value>) -> Vec<Value> {
+    let indonesian_chapters = chapters
+        .iter()
+        .filter(|chapter| {
+            chapter
+                .get("attributes")
+                .and_then(|attributes| attributes.get("translatedLanguage"))
+                .and_then(Value::as_str)
+                == Some("id")
+        })
+        .filter_map(chapter_identity)
+        .collect::<std::collections::HashSet<_>>();
+
+    chapters
+        .into_iter()
+        .filter(|chapter| {
+            let Some(attributes) = chapter.get("attributes") else {
+                return false;
+            };
+            if !has_readable_pages(attributes) {
+                return false;
+            }
+            let is_english = attributes
+                .get("translatedLanguage")
+                .and_then(Value::as_str)
+                == Some("en");
+            !is_english
+                || chapter_identity(chapter)
+                    .is_none_or(|identity| !indonesian_chapters.contains(&identity))
+        })
+        .collect()
 }
 
-fn load_chapters(series_id: &str, language: &str) -> Result<Vec<Chapter>, String> {
-    let mut chapters = Vec::new();
+fn chapter_identity(chapter: &Value) -> Option<(Option<String>, String)> {
+    let attributes = chapter.get("attributes")?;
+    let number = string_value(attributes.get("chapter"))?.to_string();
+    let volume = string_value(attributes.get("volume")).map(str::to_string);
+    Some((volume, number))
+}
+
+fn load_chapters(series_id: &str) -> Result<Vec<Chapter>, String> {
+    let mut chapter_entries = Vec::new();
     let mut offset = 0;
     loop {
         let offset_string = offset.to_string();
-        let feed_payload = api_json(
-            &format!("{API_URL}/manga/{series_id}/feed"),
-            &[
-                ("limit", "500"),
-                ("offset", &offset_string),
-                ("translatedLanguage[]", language),
-                ("order[volume]", "asc"),
-                ("order[chapter]", "asc"),
-                ("includes[]", "scanlation_group"),
-            ],
-        )?;
+        let query = vec![
+            ("limit", "500"),
+            ("offset", offset_string.as_str()),
+            ("translatedLanguage[]", "id"),
+            ("translatedLanguage[]", "en"),
+            ("order[volume]", "asc"),
+            ("order[chapter]", "asc"),
+            ("includes[]", "scanlation_group"),
+        ];
+        let feed_payload = api_json(&format!("{API_URL}/manga/{series_id}/feed"), &query)?;
         let page = feed_payload
             .get("data")
             .and_then(Value::as_array)
             .ok_or_else(|| "MangaDex chapter feed was missing".to_string())?;
-        chapters.extend(parse_chapters(page));
+        chapter_entries.extend(page.iter().cloned());
         let total = feed_payload
             .get("total")
             .and_then(Value::as_u64)
@@ -264,7 +294,9 @@ fn load_chapters(series_id: &str, language: &str) -> Result<Vec<Chapter>, String
         }
     }
 
-    Ok(chapters)
+    Ok(parse_chapters(&prefer_indonesian_translations(
+        chapter_entries,
+    )))
 }
 
 fn load_series_data(series_id: &str, manga: &Value, chapters: Vec<Chapter>) -> SeriesChapters {
@@ -297,19 +329,7 @@ fn parse_chapters(chapters: &[Value]) -> Vec<Chapter> {
         .iter()
         .filter_map(|chapter| {
             let attributes = chapter.get("attributes")?;
-            let has_images = attributes
-                .get("pages")
-                .and_then(Value::as_u64)
-                .unwrap_or_default()
-                > 0;
-            let externally_hosted = attributes
-                .get("externalUrl")
-                .is_some_and(|url| !url.is_null());
-            let unavailable = attributes
-                .get("isUnavailable")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            if !has_images || externally_hosted || unavailable {
+            if !has_readable_pages(attributes) {
                 return None;
             }
             let id = chapter.get("id").and_then(Value::as_str)?;
@@ -359,6 +379,21 @@ fn parse_chapters(chapters: &[Value]) -> Vec<Chapter> {
             })
         })
         .collect()
+}
+
+fn has_readable_pages(attributes: &Value) -> bool {
+    attributes
+        .get("pages")
+        .and_then(Value::as_u64)
+        .unwrap_or_default()
+        > 0
+        && !attributes
+            .get("externalUrl")
+            .is_some_and(|url| !url.is_null())
+        && !attributes
+            .get("isUnavailable")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
 }
 
 fn load_pages(chapter_id: &str) -> Result<Vec<PageImage>, String> {

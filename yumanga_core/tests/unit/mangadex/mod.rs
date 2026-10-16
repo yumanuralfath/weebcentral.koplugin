@@ -1,5 +1,6 @@
 mod constructs_at_home_page_urls;
 mod filters_unreadable_chapters_and_shows_group_credit;
+mod genre_search;
 mod maps_search_results;
 mod parses_series_metadata;
 mod rejects_missing_at_home_pages;
